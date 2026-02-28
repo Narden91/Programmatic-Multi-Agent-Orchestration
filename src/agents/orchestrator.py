@@ -8,6 +8,7 @@ from ..core.sandbox import CodeSandbox
 from ..utils.code_analyzer import analyze_code
 from ..utils.metrics import get_token_tracker
 from ..utils.script_bank import ScriptBank
+from ..utils.tracing import get_tracer, TraceEvent, TraceKind
 
 
 class OrchestratorAgent(BaseAgent):
@@ -29,6 +30,7 @@ class OrchestratorAgent(BaseAgent):
         code_failure = state.get('code_execution_error')
         previous_code = state.get('generated_code', '')
         descriptions = registry.descriptions()
+        conversation_context = state.get('conversation_context', '')
 
         # Gather few-shot examples from script bank
         few_shot: List[tuple] = []
@@ -51,11 +53,24 @@ class OrchestratorAgent(BaseAgent):
                 available_experts=self.available_experts,
                 expert_descriptions=descriptions,
                 few_shot_examples=few_shot or None,
+                conversation_context=conversation_context,
             )
         
+        # Trace: orchestrator start / retry
+        _kind = TraceKind.ORCHESTRATOR_RETRY if code_failure else TraceKind.ORCHESTRATOR_START
+        get_tracer().emit_sync(TraceEvent(
+            kind=_kind.value, agent=self.name,
+            data={"query": query, "is_retry": bool(code_failure), "few_shot": len(few_shot)},
+        ))
+
         response = self.invoke_with_retry(prompt)
         generated_code = self._extract_code(response.content)
-        
+
+        get_tracer().emit_sync(TraceEvent(
+            kind=TraceKind.ORCHESTRATOR_CODE_GENERATED.value, agent=self.name,
+            data={"code_length": len(generated_code)},
+        ))
+
         return {
             "generated_code": generated_code,
             "code_execution_error": "",
@@ -103,7 +118,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
 
         # Analyse the generated code's execution plan (best-effort)
         plan = analyze_code(code)
-        
+
+        await get_tracer().emit(TraceEvent(
+            kind=TraceKind.SANDBOX_START.value, agent=self.name,
+            data={"code_length": len(code), "iteration": iterations},
+        ))
+
         try:
             execution_result = await self.sandbox.execute(code)
 
@@ -115,6 +135,11 @@ class CodeExecutionAgent(AsyncBaseAgent):
                     experts_used=execution_result["selected_experts"],
                     success=True,
                 )
+
+            await get_tracer().emit(TraceEvent(
+                kind=TraceKind.SANDBOX_SUCCESS.value, agent=self.name,
+                data={"experts": execution_result["selected_experts"]},
+            ))
 
             return {
                 "final_answer": execution_result["result"],
@@ -134,6 +159,11 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 )]
             }
         except Exception as e:
+            await get_tracer().emit(TraceEvent(
+                kind=TraceKind.SANDBOX_ERROR.value, agent=self.name,
+                data={"error": str(e)},
+            ))
+
             # Record failure in script bank
             if self.script_bank:
                 self.script_bank.record(

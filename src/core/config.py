@@ -33,6 +33,7 @@ class ExpertConfig:
     llm_config: LLMConfig
     system_prompt: str
     confidence_threshold: float = 0.7
+    provider_type: str = ""  # empty → inherit from global config
 
 
 @dataclass

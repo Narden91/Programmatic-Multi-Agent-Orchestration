@@ -27,6 +27,7 @@ class MoEState(TypedDict):
     code_execution_iterations: int
     token_usage: Dict
     execution_plan: Dict
+    conversation_context: str  # formatted multi-turn history
 
 
 def create_initial_state(query: str) -> MoEState:
@@ -45,4 +46,5 @@ def create_initial_state(query: str) -> MoEState:
         "code_execution_iterations": 0,
         "token_usage": {},
         "execution_plan": {},
+        "conversation_context": "",
     }

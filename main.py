@@ -9,7 +9,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def run_query(query: str, model: str | None = None) -> None:
+async def run_query(
+    query: str,
+    model: str | None = None,
+    *,
+    memory=None,
+) -> None:
     """Run a single query through the programmatic orchestration pipeline."""
     from src.core.config import MoEConfig
     from src.core.state import create_initial_state
@@ -23,13 +28,25 @@ async def run_query(query: str, model: str | None = None) -> None:
             ec.llm_config.model_name = model
     config.validate()
 
-    graph = MoEGraphBuilder(config).build()
+    graph = MoEGraphBuilder(config, memory=memory).build()
     state = create_initial_state(query)
+
+    # Inject conversation context if memory is provided
+    if memory:
+        state["conversation_context"] = memory.format_context()
 
     # Reset token tracker for this request
     tracker = reset_token_tracker()
 
     result = await graph.ainvoke(state)
+
+    # Record turn in memory
+    if memory:
+        memory.add(
+            query=query,
+            answer=result.get("final_answer", ""),
+            experts_used=result.get("selected_experts", []),
+        )
 
     print("\n--- Generated Orchestration Code ---")
     print(result.get("generated_code", "(none)"))
@@ -64,6 +81,24 @@ async def run_query(query: str, model: str | None = None) -> None:
         print(f"  Experts: {', '.join(plan['experts_used'])}")
 
 
+async def interactive_mode(model: str | None = None) -> None:
+    """Multi-turn interactive conversation loop."""
+    from src.utils.memory import ConversationMemory
+
+    memory = ConversationMemory(max_turns=20)
+    print("Multi-turn MoE session (type 'exit' or 'quit' to stop)\n")
+
+    while True:
+        try:
+            query = input("You> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not query or query.lower() in ("exit", "quit"):
+            break
+        await run_query(query, model=model, memory=memory)
+        print()  # blank line between turns
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Programmatic Multi-Agent Orchestration CLI",
@@ -77,10 +112,18 @@ def main() -> None:
         "--ui", action="store_true",
         help="Launch the Streamlit UI instead of the CLI",
     )
+    parser.add_argument(
+        "--interactive", "-i", action="store_true",
+        help="Start an interactive multi-turn conversation",
+    )
     args = parser.parse_args()
 
     if args.ui:
         os.system(f"{sys.executable} -m streamlit run ui/app.py")
+        return
+
+    if args.interactive:
+        asyncio.run(interactive_mode(model=args.model))
         return
 
     if not args.query:

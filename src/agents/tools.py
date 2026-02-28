@@ -5,6 +5,7 @@ from .experts.generic import GenericExpert
 from .registry import registry
 from ..llm.providers import LLMFactory
 from ..utils.cache import ResponseCache
+from ..utils.tracing import get_tracer, TraceEvent, TraceKind
 
 # ---------------------------------------------------------------------------
 # Thread-safe singleton cache for expert instances
@@ -45,7 +46,13 @@ async def spawn_expert(expert_type: str, prompt: str) -> str:
         if expert_type not in _expert_instances:
             # LLM config: prefer explicit config, fall back to orchestrator_config
             expert_cfg = config.expert_configs.get(expert_type)
-            provider_type = config.get_provider_type()
+
+            # Per-expert provider override (multi-provider mixing)
+            provider_type = (
+                expert_cfg.provider_type
+                if expert_cfg and expert_cfg.provider_type
+                else config.get_provider_type()
+            )
             api_key = getattr(config, f"{provider_type}_api_key")
 
             llm_config = expert_cfg.llm_config if expert_cfg else config.orchestrator_config
@@ -66,7 +73,22 @@ async def spawn_expert(expert_type: str, prompt: str) -> str:
             )
 
     expert = _expert_instances[expert_type]
-    return await expert.aexecute(prompt)
+
+    await get_tracer().emit(TraceEvent(
+        kind=TraceKind.EXPERT_CALL_START.value,
+        agent=expert_type,
+        data={"prompt_length": len(prompt)},
+    ))
+
+    result = await expert.aexecute(prompt)
+
+    await get_tracer().emit(TraceEvent(
+        kind=TraceKind.EXPERT_CALL_END.value,
+        agent=expert_type,
+        data={"result_length": len(result)},
+    ))
+
+    return result
 
 
 # ---------------------------------------------------------------------------

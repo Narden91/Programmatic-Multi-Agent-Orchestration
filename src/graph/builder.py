@@ -6,17 +6,24 @@ from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
 from ..utils.cache import ResponseCache
 from ..utils.script_bank import ScriptBank
+from ..utils.memory import ConversationMemory
 
 
 class MoEGraphBuilder:
     """Builder for constructing the MoE LangGraph workflow"""
     
-    def __init__(self, config: MoEConfig, script_bank: ScriptBank | None = None):
+    def __init__(
+        self,
+        config: MoEConfig,
+        script_bank: ScriptBank | None = None,
+        memory: ConversationMemory | None = None,
+    ):
         """Initialize graph builder"""
         self.config = config
         self.agents = {}
         self.cache = None
         self.script_bank = script_bank or ScriptBank()
+        self.memory = memory
         self._initialize_cache()
         self._initialize_agents()
     

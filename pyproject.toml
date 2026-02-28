@@ -1,6 +1,6 @@
 [project]
 name = "programmatic-moe"
-version = "0.4.0"
+version = "0.5.0"
 description = "Programmatic Multi-Agent Orchestration — Code-Driven MoE with LangGraph"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,12 @@ dev = [
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
+]
+openai = ["langchain-openai>=0.2.0"]
+anthropic = ["langchain-anthropic>=0.2.0"]
+all-providers = [
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.2.0",
 ]
 
 [build-system]

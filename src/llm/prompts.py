@@ -39,6 +39,7 @@ class OrchestratorPrompts:
         available_experts: List[str],
         expert_descriptions: Optional[Dict[str, str]] = None,
         few_shot_examples: Optional[List[Tuple[str, str]]] = None,
+        conversation_context: str = "",
     ) -> str:
         """Create orchestration prompt for code generation.
 
@@ -54,6 +55,8 @@ class OrchestratorPrompts:
         few_shot_examples : list[tuple[str, str]] | None
             ``[(query, code), ...]`` past successful scripts to include as
             few-shot examples.
+        conversation_context : str
+            Formatted multi-turn history to include in the prompt.
         """
         # Fall back to built-in descriptions when the registry isn't passed
         _fallback = {
@@ -85,10 +88,19 @@ class OrchestratorPrompts:
                 + "\n\nUse these as inspiration, but adapt to the current query.\n"
             )
         
+        # Optional conversation context section
+        context_section = ""
+        if conversation_context:
+            context_section = (
+                f"\n\n{conversation_context}\n\n"
+                "Take the conversation history above into account when "
+                "answering the current query.\n"
+            )
+
         return f"""You are an advanced AI orchestrator. Your task is to write an async Python script that solves the user's query by programmatically calling expert micro-agents.
 
 User Query: "{query}"
-
+{context_section}
 You have access to the following async functions (tools) in your sandbox environment:
 {experts_list}
 - asyncio.gather(*tasks) # for running agents in parallel
