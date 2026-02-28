@@ -30,11 +30,11 @@ class MoEGraphBuilder:
         provider_type = self.config.get_provider_type()
         api_key = getattr(self.config, f"{provider_type}_api_key")
         
-        # Reuse router config for orchestrator
+        # Reuse orchestrator config for the script-generating LLM
         orchestrator_llm = LLMFactory.create_provider(
             provider_type,
             api_key,
-            self.config.router_config
+            self.config.orchestrator_config
         )
         
         self.agents['orchestrator'] = OrchestratorAgent(
@@ -43,7 +43,6 @@ class MoEGraphBuilder:
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(
-            None,  # Code execution doesn't need LLM
             timeout_seconds=self.config.request_timeout,
         )
     

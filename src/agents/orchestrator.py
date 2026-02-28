@@ -1,6 +1,6 @@
 from typing import Dict, Any, List
 import re
-from .base import BaseAgent
+from .base import BaseAgent, AsyncBaseAgent
 from ..core.state import MoEState
 from ..llm.prompts import OrchestratorPrompts
 from ..core.sandbox import CodeSandbox
@@ -58,15 +58,16 @@ class OrchestratorAgent(BaseAgent):
         return response.strip()
 
 
-class CodeExecutionAgent(BaseAgent):
-    """Agent that executes the generated orchestrator script"""
+class CodeExecutionAgent(AsyncBaseAgent):
+    """Agent that executes the generated orchestrator script.
 
-    def __init__(self, llm_provider, timeout_seconds: int = 60):
-        super().__init__("CodeExecutor", llm_provider)
+    This is an async-only agent — it inherits from ``AsyncBaseAgent``
+    and has no synchronous ``execute()`` method.
+    """
+
+    def __init__(self, timeout_seconds: int = 60):
+        super().__init__("CodeExecutor")
         self.sandbox = CodeSandbox(timeout_seconds=timeout_seconds)
-
-    def execute(self, state: MoEState) -> Dict[str, Any]:
-        raise NotImplementedError("CodeExecutor must be run async via aexecute()")
 
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
         """Execute the generated script in the sandbox asynchronously"""

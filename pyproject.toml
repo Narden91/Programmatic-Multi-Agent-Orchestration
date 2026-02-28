@@ -1,7 +1,7 @@
 [project]
-name = "moe-langgraph"
-version = "0.2.0"
-description = "Modular Mixture of Experts with LangGraph"
+name = "programmatic-moe"
+version = "0.3.0"
+description = "Programmatic Multi-Agent Orchestration — Code-Driven MoE with LangGraph"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -16,10 +16,14 @@ dependencies = [
     "python-dotenv>=1.0.0",
 ]
 
+[project.scripts]
+moe = "main:main"
+
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
+    "pytest>=8.4.0",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
@@ -53,10 +57,3 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
-
-[dependency-groups]
-dev = [
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
-]

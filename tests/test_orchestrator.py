@@ -130,7 +130,7 @@ class TestCodeExecutionAgent:
 
     def test_timeout_is_configurable(self):
         """Test that timeout_seconds is passed through to the sandbox"""
-        agent = CodeExecutionAgent(None, timeout_seconds=120)
+        agent = CodeExecutionAgent(timeout_seconds=120)
         assert agent.sandbox.timeout_seconds == 120
 
 

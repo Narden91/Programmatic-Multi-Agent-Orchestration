@@ -43,9 +43,17 @@ class MoEConfig:
     openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
     
-    router_config: LLMConfig = field(default_factory=lambda: LLMConfig.from_env("ROUTER"))
-    synthesizer_config: LLMConfig = field(default_factory=lambda: LLMConfig.from_env("SYNTHESIZER"))
+    orchestrator_config: LLMConfig = field(default_factory=lambda: LLMConfig.from_env("ORCHESTRATOR"))
     expert_configs: Dict[str, ExpertConfig] = field(default_factory=dict)
+
+    # Kept as aliases for backward-compat; both resolve to orchestrator_config.
+    @property
+    def router_config(self) -> LLMConfig:
+        return self.orchestrator_config
+
+    @property
+    def synthesizer_config(self) -> LLMConfig:
+        return self.orchestrator_config
     
     max_parallel_experts: int = field(default_factory=lambda: int(os.getenv("MAX_PARALLEL_EXPERTS", "4")))
     enable_logging: bool = field(default_factory=lambda: os.getenv("ENABLE_LOGGING", os.getenv("ENABLE_METRICS", "true")).lower() == "true")
