@@ -10,13 +10,11 @@ class OrchestratorAgent(BaseAgent):
     """Orchestrator agent that generates an async Python orchestration script"""
     
     def __init__(self, llm_provider, available_experts: List[str]):
-        """Initialize orchestrator agent"""
         super().__init__("Orchestrator", llm_provider)
         self.available_experts = available_experts
         self.prompts = OrchestratorPrompts()
     
     def execute(self, state: MoEState) -> Dict[str, Any]:
-        """Generate the orchestration script"""
         query = state['query']
         code_failure = state.get('code_execution_error')
         
@@ -45,7 +43,6 @@ class OrchestratorAgent(BaseAgent):
         }
     
     def _extract_code(self, response: str) -> str:
-        """Extract Python code from markdown blocks"""
         match = re.search(r'```python\n(.*?)\n```', response, re.DOTALL)
         if match:
             return match.group(1).strip()
@@ -62,8 +59,7 @@ class CodeExecutionAgent(BaseAgent):
         self.sandbox = CodeSandbox()
 
     def execute(self, state: MoEState) -> Dict[str, Any]:
-        """BaseAgent requires this method, but we use aexecute explicitly in LangGraph"""
-        pass
+        raise NotImplementedError("CodeExecutor must be run async via aexecute()")
 
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
         """Execute the generated script in the sandbox asynchronously"""
@@ -71,14 +67,19 @@ class CodeExecutionAgent(BaseAgent):
         iterations = state.get('code_execution_iterations', 0)
         
         try:
-            final_result = await self.sandbox.execute(code)
+            execution_result = await self.sandbox.execute(code)
             return {
-                "final_answer": final_result,
+                "final_answer": execution_result["result"],
+                "selected_experts": execution_result["selected_experts"],
+                "expert_responses": execution_result["expert_responses"],
                 "code_execution_error": "",
                 "code_execution_iterations": iterations + 1,
                 "reasoning_steps": [self._log_step(
                     action="Executed Code Successfully",
-                    details={"result_length": len(str(final_result))}
+                    details={
+                        "result_length": len(execution_result["result"]),
+                        "experts_called": execution_result["selected_experts"],
+                    }
                 )]
             }
         except Exception as e:

@@ -13,20 +13,16 @@ class TestMoEGraphBuilder:
     
     @patch('src.graph.builder.LLMFactory.create_provider')
     def test_graph_builder_initializes_all_agents(self, mock_factory):
-        """Test that graph builder initializes all agents"""
+        """Test that graph builder initializes orchestrator and code executor"""
         mock_llm = Mock()
         mock_factory.return_value = mock_llm
         
         config = MoEConfig(groq_api_key="test_key")
         builder = MoEGraphBuilder(config)
         
-        # Check all agents are initialized
-        assert 'router' in builder.agents
-        assert 'technical' in builder.agents
-        assert 'creative' in builder.agents
-        assert 'analytical' in builder.agents
-        assert 'general' in builder.agents
-        assert 'synthesizer' in builder.agents
+        # Check the programmatic orchestration agents are initialized
+        assert 'orchestrator' in builder.agents
+        assert 'code_executor' in builder.agents
     
     @patch('src.graph.builder.LLMFactory.create_provider')
     def test_graph_builds_successfully(self, mock_factory):

@@ -48,7 +48,7 @@ class MoEConfig:
     expert_configs: Dict[str, ExpertConfig] = field(default_factory=dict)
     
     max_parallel_experts: int = field(default_factory=lambda: int(os.getenv("MAX_PARALLEL_EXPERTS", "4")))
-    enable_logging: bool = field(default_factory=lambda: os.getenv("ENABLE_METRICS", "true").lower() == "true")
+    enable_logging: bool = field(default_factory=lambda: os.getenv("ENABLE_LOGGING", os.getenv("ENABLE_METRICS", "true")).lower() == "true")
     log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")

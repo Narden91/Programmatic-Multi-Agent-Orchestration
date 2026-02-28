@@ -1,4 +1,5 @@
 import time
+import asyncio
 from functools import wraps
 from typing import Callable, Any
 
@@ -64,14 +65,22 @@ def measure_time(metrics: PerformanceMetrics, agent_name: str):
         agent_name: Name of the agent
     """
     def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
-            start_time = time.time()
-            result = func(*args, **kwargs)
-            duration = time.time() - start_time
-            
-            metrics.record_execution_time(agent_name, duration)
-            
-            return result
-        return wrapper
+        if asyncio.iscoroutinefunction(func):
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs) -> Any:
+                start_time = time.time()
+                result = await func(*args, **kwargs)
+                duration = time.time() - start_time
+                metrics.record_execution_time(agent_name, duration)
+                return result
+            return async_wrapper
+        else:
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs) -> Any:
+                start_time = time.time()
+                result = func(*args, **kwargs)
+                duration = time.time() - start_time
+                metrics.record_execution_time(agent_name, duration)
+                return result
+            return sync_wrapper
     return decorator

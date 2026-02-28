@@ -15,7 +15,6 @@ class BaseAgent(ABC):
     """Abstract base class for all agents"""
     
     def __init__(self, name: str, llm_provider: LLMProvider, max_retries: int = 3, retry_delay: int = 1):
-        """Initialize base agent"""
         self.name = name
         self.llm = llm_provider
         self.max_retries = max_retries
@@ -23,7 +22,6 @@ class BaseAgent(ABC):
     
     @abstractmethod
     def execute(self, state: MoEState) -> Dict[str, Any]:
-        """Execute agent logic"""
         pass
     
     def invoke_with_retry(self, prompt: str) -> Any:
@@ -101,7 +99,6 @@ class BaseAgent(ABC):
         raise Exception(error_msg)
     
     def _log_step(self, action: str, details: Dict[str, Any] = None) -> Dict:
-        """Create a reasoning step log entry"""
         return {
             "agent": self.name,
             "action": action,
