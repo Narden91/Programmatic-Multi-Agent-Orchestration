@@ -1,89 +1,123 @@
 #!/usr/bin/env bash
-# Single launcher for this project (WSL/Linux): cleans, recreates, starts.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BACKEND_HOST="127.0.0.1"
+BACKEND_PORT="8000"
+FRONTEND_HOST="127.0.0.1"
+FRONTEND_PORT="5173"
 BACKEND_PID=""
 FRONTEND_PID=""
+CLEANUP_DONE=0
+SETUP_MODE=0
 
-export UV_PROJECT_ENVIRONMENT=".venv-wsl"
-export UV_LINK_MODE="copy"
+for arg in "$@"; do
+  case "$arg" in
+    --setup)
+      SETUP_MODE=1
+      ;;
+    --help|-h)
+      echo "Usage: bash start.sh [--setup]"
+      echo "  --setup   Run dependency setup (uv sync + npm install) before starting"
+      exit 0
+      ;;
+  esac
+done
 
 log() {
-  echo "  $1"
+  echo "[moe] $1"
 }
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    echo "Missing required command: $1"
+    echo "[moe] Missing required command: $1"
     exit 1
   fi
 }
 
 cleanup() {
-  echo ""
-  log "🛑 Shutting down..."
-  if [ -n "$BACKEND_PID" ]; then
-    kill "$BACKEND_PID" 2>/dev/null || true
+  if [ "$CLEANUP_DONE" -eq 1 ]; then
+    return
   fi
+  CLEANUP_DONE=1
+  echo
+  log "Stopping services..."
   if [ -n "$FRONTEND_PID" ]; then
     kill "$FRONTEND_PID" 2>/dev/null || true
   fi
+  if [ -n "$BACKEND_PID" ]; then
+    kill "$BACKEND_PID" 2>/dev/null || true
+  fi
   wait 2>/dev/null || true
-  log "Done."
+  log "Stopped."
+}
+
+wait_for_backend() {
+  local retries=60
+  local url="http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+
+  for _ in $(seq 1 "$retries"); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+
+  return 1
 }
 
 trap cleanup EXIT INT TERM
 
 require_cmd uv
 require_cmd npm
+require_cmd curl
 
-wait_for_port() {
-  local host="$1"
-  local port="$2"
-  local timeout_s="$3"
-  local elapsed=0
+cd "$ROOT_DIR"
 
-  while ! (echo >"/dev/tcp/${host}/${port}") >/dev/null 2>&1; do
-    sleep 0.2
-    elapsed=$((elapsed + 1))
-    if [ "$elapsed" -ge $((timeout_s * 5)) ]; then
-      echo "Timed out waiting for ${host}:${port}"
-      exit 1
-    fi
-  done
-}
+if [ ! -f ".env" ]; then
+  log "Warning: .env not found in project root. API key auto-load may fail."
+fi
 
-cd "$ROOT"
+if [ "$SETUP_MODE" -eq 1 ]; then
+  log "Setup mode enabled: syncing Python dependencies (uv sync)..."
+  UV_LINK_MODE="${UV_LINK_MODE:-copy}" uv sync
 
-log "🧹 Cleaning backend env (.venv-wsl)..."
-rm -rf .venv-wsl
+  log "Setup mode enabled: installing frontend dependencies..."
+  npm install --prefix frontend --no-audit --no-fund
+else
+  log "Skipping dependency installation (fast start mode)."
+  log "Use 'bash start.sh --setup' after dependency or lockfile changes."
 
-log "📦 Recreating backend env with uv sync..."
-uv sync
+  if [ ! -d ".venv" ]; then
+    log "Python env not found (.venv). Run: bash start.sh --setup"
+    exit 1
+  fi
 
-log "🧹 Cleaning frontend deps..."
-rm -rf frontend/node_modules frontend/package-lock.json
+  if [ ! -d "frontend/node_modules" ]; then
+    log "frontend/node_modules not found. Run: bash start.sh --setup"
+    exit 1
+  fi
+fi
 
-log "📦 Reinstalling frontend deps..."
-npm install --prefix frontend --no-audit --no-fund
-
-log "🚀 Starting FastAPI backend on http://localhost:8000"
-uv run --no-sync uvicorn api.main:app --reload --port 8000 &
+log "Starting backend on http://${BACKEND_HOST}:${BACKEND_PORT} ..."
+uv run --no-sync uvicorn api.main:app --reload --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
 BACKEND_PID=$!
 
-log "⏳ Waiting for backend readiness..."
-wait_for_port 127.0.0.1 8000 30
+log "Waiting for backend health endpoint..."
+if ! wait_for_backend; then
+  log "Backend did not become ready at http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+  exit 1
+fi
 
-log "⚛️  Starting React frontend on http://localhost:5173"
-npm run dev --prefix frontend &
+log "Starting frontend on http://${FRONTEND_HOST}:${FRONTEND_PORT} ..."
+npm run dev --prefix frontend -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT" &
 FRONTEND_PID=$!
 
-echo ""
-log "✅ Both servers running!"
-log "🌐 Open http://localhost:5173"
-log "Backend API: http://localhost:8000/api/health"
-log "Press Ctrl+C to stop both."
-echo ""
+echo
+log "Services are running"
+log "Frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+log "Backend : http://${BACKEND_HOST}:${BACKEND_PORT}/api/health"
+log "Press Ctrl+C to stop"
+echo
 
 wait -n "$BACKEND_PID" "$FRONTEND_PID"

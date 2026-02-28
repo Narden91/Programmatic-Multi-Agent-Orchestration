@@ -8,7 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
-load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=False)
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=True)
 
 
 async def run_query(

@@ -165,13 +165,39 @@ GROQ_API_KEY=your_groq_api_key_here
 
 ### Run the App
 
-```bash
-# Bash-only launcher (WSL/Linux)
-bash start.sh
+#### Windows (PowerShell)
+
+```powershell
+# from repository root
+./start.ps1
 ```
 
-Frontend: `http://localhost:5173`  
-Backend health: `http://localhost:8000/api/health`
+#### WSL / Linux / macOS (bash)
+
+```bash
+# from repository root
+bash start.sh
+
+# first run or after dependency/lockfile changes
+bash start.sh --setup
+```
+
+#### Manual startup (all platforms)
+
+```bash
+# Terminal 1 (backend)
+uv run uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+
+# Terminal 2 (frontend)
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend: `http://127.0.0.1:5173`  
+Backend health: `http://127.0.0.1:8000/api/health`
+
+> Important: if you see `http proxy error: /api/init ECONNREFUSED 127.0.0.1:8000`, the frontend is running but the backend is not reachable. Start the backend first and re-open the frontend.
 
 ---
 
@@ -366,6 +392,30 @@ python -m benchmarks.run
 | `CACHE_TTL_SECONDS` | `3600` | Cache entry time-to-live |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `DEBUG` | `false` | Enable debug mode |
+
+### Verify API key loading
+
+1. Create `.env` in repository root with:
+
+```env
+GROQ_API_KEY=your_groq_api_key_here
+```
+
+2. Start backend and check startup logs for:
+    - `dotenv loaded from .../.env`
+    - `GROQ_API_KEY detected: True`
+
+3. Verify from browser or terminal:
+
+```bash
+curl http://127.0.0.1:8000/api/init
+```
+
+Expected JSON contains:
+
+```json
+{"has_env_api_key": true, "version": "0.5.0", "models": [...]}
+```
 
 ---
 

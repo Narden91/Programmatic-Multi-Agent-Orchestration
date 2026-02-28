@@ -18,12 +18,13 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 
 # override=True ensures .env values always win (even if the var already
 # exists as an empty string in the process environment).
-loaded = load_dotenv(dotenv_path=_ENV_FILE, override=True)
+DOTENV_LOADED = load_dotenv(dotenv_path=_ENV_FILE, override=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
+    logger.info("dotenv parse result: %s", DOTENV_LOADED)
     logger.info("dotenv loaded from %s  (file exists: %s)", _ENV_FILE, _ENV_FILE.exists())
     logger.info("GROQ_API_KEY detected: %s", key_present)
     if not key_present:
