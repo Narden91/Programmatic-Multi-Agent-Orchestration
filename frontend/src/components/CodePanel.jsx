@@ -1,25 +1,7 @@
 import { useState } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import codeTheme from '../styles/codeTheme'
 import { Copy, Check, AlertTriangle, RefreshCw } from 'lucide-react'
-
-const customStyle = {
-  ...oneDark,
-  'pre[class*="language-"]': {
-    ...oneDark['pre[class*="language-"]'],
-    background: 'rgba(6, 8, 15, 0.8)',
-    borderRadius: '12px',
-    border: '1px solid rgba(255, 255, 255, 0.06)',
-    fontSize: '12px',
-    lineHeight: '1.7',
-    margin: 0,
-  },
-  'code[class*="language-"]': {
-    ...oneDark['code[class*="language-"]'],
-    fontSize: '12px',
-    fontFamily: '"JetBrains Mono", "Fira Code", monospace',
-  },
-}
 
 export default function CodePanel({ code, error, iterations }) {
   const [copied, setCopied] = useState(false)
@@ -70,7 +52,7 @@ export default function CodePanel({ code, error, iterations }) {
       <div className="code-panel">
         <SyntaxHighlighter
           language="python"
-          style={customStyle}
+          style={codeTheme}
           showLineNumbers
           wrapLongLines
           lineNumberStyle={{

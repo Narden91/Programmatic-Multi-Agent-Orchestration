@@ -9,7 +9,7 @@
 [![Groq](https://img.shields.io/badge/Groq-Fast_LLM-orange)](https://groq.com)
 [![OpenAI](https://img.shields.io/badge/OpenAI-optional-lightgrey)](https://openai.com)
 [![Anthropic](https://img.shields.io/badge/Anthropic-optional-lightgrey)](https://anthropic.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-UI-red)](https://streamlit.io)
+[![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev)
 [![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.5.0-blue)]()
 
@@ -45,7 +45,7 @@ When a query arrives, our **Master Orchestrator** doesn't just route it through 
 | **Security** | 🔒 `SecretStr` wrapper prevents API keys from leaking in repr/logs/tracebacks |
 | **Security** | 🔒 Sandboxed `print()` with bounded buffer — no stdout exfiltration |
 | **Security** | 🔒 Trace event redaction, bounded history, and file permission hardening |
-| **UI** | 💻 Streamlit interface with real-time code display |
+| **UI** | 💻 React interface with FastAPI backend and real-time orchestration insights |
 
 ---
 
@@ -116,9 +116,7 @@ src/
 ├── benchmarks/
 │   ├── suite.py           # BenchmarkSuite, BenchmarkCase, BenchmarkReport
 │   └── run.py             # CLI benchmark runner
-├── tests/                 # 103 tests (unit + integration)
-└── ui/
-    └── app.py             # Streamlit chat interface
+└── tests/                 # 103 tests (unit + integration)
 ```
 
 ---
@@ -168,17 +166,12 @@ GROQ_API_KEY=your_groq_api_key_here
 ### Run the App
 
 ```bash
-# With UV
-uv run streamlit run ui/app.py
-
-# Or directly
-streamlit run ui/app.py
-
-# Or via the CLI entry point
-python main.py
+# Bash-only launcher (WSL/Linux)
+bash start.sh
 ```
 
-Visit `http://localhost:8501` to access the chat interface and watch the orchestrator write code in real-time.
+Frontend: `http://localhost:5173`  
+Backend health: `http://localhost:8000/api/health`
 
 ---
 
@@ -380,5 +373,5 @@ python -m benchmarks.run
 
 This project is licensed under the MIT License.
 
-Built with [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [Groq](https://groq.com), and [Streamlit](https://streamlit.io).
+Built with [LangGraph](https://github.com/langchain-ai/langgraph), [LangChain](https://github.com/langchain-ai/langchain), [FastAPI](https://fastapi.tiangolo.com), and [React](https://react.dev).
 Special thanks to the open-source AI engineering community.

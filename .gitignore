@@ -23,6 +23,7 @@ ENV/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.node_platform
 
 # IDE
 .vscode/

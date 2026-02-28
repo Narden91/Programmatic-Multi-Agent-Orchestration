@@ -1,35 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 
 
-class ExpertPrompts:
-    """Legacy shim — prompt creation now lives in the ExpertRegistry.
-
-    Kept only so that older code that references ``ExpertPrompts`` still
-    imports without error.  New code should use
-    ``registry.create_prompt(expert_type, query)`` instead.
-    """
-
-    @staticmethod
-    def create_technical_prompt(query: str) -> str:
-        from ..agents.registry import registry
-        return registry.create_prompt("technical", query)
-
-    @staticmethod
-    def create_creative_prompt(query: str) -> str:
-        from ..agents.registry import registry
-        return registry.create_prompt("creative", query)
-
-    @staticmethod
-    def create_analytical_prompt(query: str) -> str:
-        from ..agents.registry import registry
-        return registry.create_prompt("analytical", query)
-
-    @staticmethod
-    def create_general_prompt(query: str) -> str:
-        from ..agents.registry import registry
-        return registry.create_prompt("general", query)
-
-
 class OrchestratorPrompts:
     """Prompts for the Code Orchestrator agent"""
     

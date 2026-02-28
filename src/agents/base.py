@@ -35,7 +35,7 @@ class _AgentMixin:
 
 
 # ======================================================================
-# Synchronous base (Orchestrator, legacy Router, experts in graph mode)
+# Synchronous base (Orchestrator and sync experts)
 # ======================================================================
 
 class BaseAgent(_AgentMixin, ABC):

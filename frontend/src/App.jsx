@@ -1,10 +1,13 @@
-import { useState, useReducer, useEffect, useCallback } from 'react'
+import { useReducer, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import Layout from './components/Layout'
 import Sidebar from './components/Sidebar'
 import Hero from './components/Hero'
 import Chat from './components/Chat'
 import ChatInput from './components/ChatInput'
-import { sendQuery, getModels, getConfig } from './api/client'
+import { sendQuery, getInit } from './api/client'
+
+// Lazy-load the heavy AboutPage (pipeline animation, icons, etc.)
+const AboutPage = lazy(() => import('./components/AboutPage'))
 
 const initialState = {
   messages: [],
@@ -22,6 +25,7 @@ const initialState = {
   },
   availableModels: [],
   sidebarOpen: false,
+  page: 'chat', // 'chat' | 'about'
 }
 
 function reducer(state, action) {
@@ -62,6 +66,8 @@ function reducer(state, action) {
       }
     case 'TOGGLE_SIDEBAR':
       return { ...state, sidebarOpen: !state.sidebarOpen }
+    case 'SET_PAGE':
+      return { ...state, page: action.payload }
     default:
       return state
   }
@@ -69,22 +75,20 @@ function reducer(state, action) {
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const initRef = useRef(false)
 
   useEffect(() => {
+    // Guard against React StrictMode double-mount in development
+    if (initRef.current) return
+    initRef.current = true
+
     const saved = localStorage.getItem('moe_api_key')
     if (saved) dispatch({ type: 'SET_CONFIG', payload: { apiKey: saved } })
 
-    getConfig()
-      .then((cfg) => {
-        dispatch({
-          type: 'SET_CONFIG',
-          payload: { hasEnvKey: cfg.has_env_api_key },
-        })
-      })
-      .catch(() => {})
-
-    getModels()
+    // Single init call (config + models in one request)
+    getInit()
       .then((data) => {
+        dispatch({ type: 'SET_CONFIG', payload: { hasEnvKey: data.has_env_api_key } })
         dispatch({ type: 'SET_MODELS', payload: data.models })
       })
       .catch(() => {})
@@ -147,28 +151,39 @@ export default function App() {
           onClear={() => dispatch({ type: 'CLEAR_MESSAGES' })}
           isOpen={state.sidebarOpen}
           onToggle={() => dispatch({ type: 'TOGGLE_SIDEBAR' })}
+          currentPage={state.page}
+          onNavigate={(page) => dispatch({ type: 'SET_PAGE', payload: page })}
         />
       }
     >
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {!hasMessages ? (
-          <div className="flex-1 overflow-y-auto">
-            <Hero onSelectPrompt={handleSend} />
-          </div>
-        ) : (
-          <Chat messages={state.messages} isLoading={state.isLoading} />
-        )}
-        <ChatInput
-          onSend={handleSend}
-          isLoading={state.isLoading}
-          disabled={needsApiKey}
-          placeholder={
-            needsApiKey
-              ? 'Add your Groq API key in the sidebar to get started...'
-              : 'Ask anything — the AI writes its own orchestration code...'
-          }
-        />
-      </div>
+      {state.page === 'about' ? (
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center text-text-muted text-sm">Loading...</div>}>
+          <AboutPage onBack={() => dispatch({ type: 'SET_PAGE', payload: 'chat' })} />
+        </Suspense>
+      ) : (
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {!hasMessages ? (
+            <div className="flex-1 overflow-y-auto">
+              <Hero
+                onSelectPrompt={handleSend}
+                onLearnMore={() => dispatch({ type: 'SET_PAGE', payload: 'about' })}
+              />
+            </div>
+          ) : (
+            <Chat messages={state.messages} isLoading={state.isLoading} />
+          )}
+          <ChatInput
+            onSend={handleSend}
+            isLoading={state.isLoading}
+            disabled={needsApiKey}
+            placeholder={
+              needsApiKey
+                ? 'Add your Groq API key in the sidebar to get started...'
+                : 'Ask anything — the AI writes its own orchestration code...'
+            }
+          />
+        </div>
+      )}
     </Layout>
   )
 }

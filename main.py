@@ -3,7 +3,6 @@
 import asyncio
 import argparse
 import os
-import subprocess
 import sys
 from dotenv import load_dotenv
 
@@ -110,21 +109,10 @@ def main() -> None:
         help="Override the LLM model name for all agents",
     )
     parser.add_argument(
-        "--ui", action="store_true",
-        help="Launch the Streamlit UI instead of the CLI",
-    )
-    parser.add_argument(
         "--interactive", "-i", action="store_true",
         help="Start an interactive multi-turn conversation",
     )
     args = parser.parse_args()
-
-    if args.ui:
-        subprocess.run(
-            [sys.executable, "-m", "streamlit", "run", "ui/app.py"],
-            check=False,
-        )
-        return
 
     if args.interactive:
         asyncio.run(interactive_mode(model=args.model))

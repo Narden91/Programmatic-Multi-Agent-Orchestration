@@ -11,6 +11,8 @@ import {
   Palette,
   BarChart3,
   MessageSquare,
+  BookOpen,
+  Home,
   X,
 } from 'lucide-react'
 
@@ -50,6 +52,8 @@ export default function Sidebar({
   onClear,
   isOpen,
   onToggle,
+  currentPage,
+  onNavigate,
 }) {
   const [showKey, setShowKey] = useState(false)
 
@@ -191,63 +195,33 @@ export default function Sidebar({
           </section>
         )}
 
-        {/* How It Works */}
-        <section>
-          <details className="group">
-            <summary className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-wider cursor-pointer list-none">
-              <Zap size={12} />
-              How It Works
-              <ChevronDown
-                size={12}
-                className="ml-auto transition-transform group-open:rotate-180"
-              />
-            </summary>
-            <ol className="mt-2 space-y-1.5 text-[11px] text-text-secondary">
-              {[
-                {
-                  n: 1,
-                  color: 'accent-purple',
-                  bold: 'Orchestrator',
-                  text: 'analyzes your query',
-                },
-                {
-                  n: 2,
-                  color: 'accent-violet',
-                  bold: 'Writes',
-                  text: 'an async Python script',
-                },
-                {
-                  n: 3,
-                  color: 'accent-amber',
-                  bold: 'Sandbox',
-                  text: 'executes the code securely',
-                },
-                {
-                  n: 4,
-                  color: 'accent-teal',
-                  bold: 'Micro-agents',
-                  text: 'are invoked programmatically',
-                },
-                {
-                  n: 5,
-                  color: 'accent-orange',
-                  bold: 'Final answer',
-                  text: 'returned with full transparency',
-                },
-              ].map(({ n, color, bold, text }) => (
-                <li key={n} className="flex items-start gap-2">
-                  <span
-                    className={`flex-shrink-0 w-4 h-4 rounded-full bg-${color}/20 text-${color} text-[9px] font-bold flex items-center justify-center mt-0.5`}
-                  >
-                    {n}
-                  </span>
-                  <span>
-                    <strong className="text-text-primary">{bold}</strong> {text}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </details>
+        {/* Navigation */}
+        <section className="space-y-1">
+          <label className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
+            Navigation
+          </label>
+          <button
+            onClick={() => onNavigate?.('chat')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+              currentPage === 'chat'
+                ? 'bg-accent-purple/15 text-accent-purple border border-accent-purple/30'
+                : 'text-text-secondary hover:text-text-primary hover:bg-bg/40'
+            }`}
+          >
+            <Home size={13} />
+            Chat
+          </button>
+          <button
+            onClick={() => onNavigate?.('about')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+              currentPage === 'about'
+                ? 'bg-accent-purple/15 text-accent-purple border border-accent-purple/30'
+                : 'text-text-secondary hover:text-text-primary hover:bg-bg/40'
+            }`}
+          >
+            <BookOpen size={13} />
+            Architecture &amp; About
+          </button>
         </section>
       </div>
 

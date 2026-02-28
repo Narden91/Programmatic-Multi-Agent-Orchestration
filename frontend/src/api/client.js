@@ -18,6 +18,16 @@ export async function sendQuery(query, apiKey, model) {
   return res.json();
 }
 
+/**
+ * Single init call returning config + models in one request.
+ * Falls back to separate calls if the endpoint is unavailable.
+ */
+export async function getInit() {
+  const res = await fetch(`${API_BASE}/init`);
+  if (!res.ok) throw new Error('Failed to fetch init');
+  return res.json();
+}
+
 export async function getModels() {
   const res = await fetch(`${API_BASE}/models`);
   if (!res.ok) throw new Error('Failed to fetch models');

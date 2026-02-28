@@ -1,10 +1,11 @@
 """FastAPI backend for the Programmatic Multi-Agent Orchestration system."""
 
-import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,3 +39,24 @@ app.add_middleware(
 from api.routes import router  # noqa: E402
 
 app.include_router(router, prefix="/api")
+
+
+_FAVICON = Path(__file__).resolve().parent.parent / "frontend" / "public" / "favicon.svg"
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+@app.get("/favicon.svg", include_in_schema=False)
+async def favicon():
+    if _FAVICON.exists():
+        return FileResponse(_FAVICON, media_type="image/svg+xml")
+    return {"detail": "not found"}
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Programmatic MoE Orchestration API",
+        "docs": "/docs",
+        "frontend": "http://localhost:5173",
+        "health": "/api/health",
+    }

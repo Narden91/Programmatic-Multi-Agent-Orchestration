@@ -44,6 +44,16 @@ async def get_models():
     return ModelsResponse(models=AVAILABLE_MODELS)
 
 
+@router.get("/init")
+async def get_init():
+    """Combined config+models endpoint — one request instead of two."""
+    return {
+        "has_env_api_key": bool(os.getenv("GROQ_API_KEY")),
+        "version": "0.5.0",
+        "models": AVAILABLE_MODELS,
+    }
+
+
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
     api_key = req.api_key or os.getenv("GROQ_API_KEY", "")

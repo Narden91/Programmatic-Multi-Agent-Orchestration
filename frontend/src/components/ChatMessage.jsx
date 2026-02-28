@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
 import { User, Brain, ChevronDown, Code2 } from 'lucide-react'
-import MissionControl from './MissionControl'
+import Markdown from './Markdown'
+
+// Lazy-load MissionControl (heavy: recharts, syntax-highlighter, SVG flow graph)
+const MissionControl = lazy(() => import('./MissionControl'))
 
 const EXPERT_COLORS = {
   technical: {
@@ -62,9 +65,7 @@ export default function ChatMessage({ message, index }) {
         ) : (
           <div className="space-y-3 max-w-full">
             <div className="glass-card p-4" style={{ borderColor: 'rgba(167, 139, 250, 0.1)' }}>
-              <div className="prose prose-invert prose-sm max-w-none text-sm text-text-primary leading-relaxed whitespace-pre-wrap">
-                {message.final_answer || message.content}
-              </div>
+              <Markdown>{message.final_answer || message.content}</Markdown>
 
               {/* Expert badges */}
               {message.selected_experts?.length > 0 && (
@@ -112,7 +113,9 @@ export default function ChatMessage({ message, index }) {
                 animate={{ opacity: 1, height: 'auto' }}
                 transition={{ duration: 0.3 }}
               >
-                <MissionControl data={message} id={index} />
+                <Suspense fallback={<div className="glass-card p-4 text-center text-text-muted text-xs">Loading Mission Control...</div>}>
+                  <MissionControl data={message} id={index} />
+                </Suspense>
               </motion.div>
             )}
           </div>
