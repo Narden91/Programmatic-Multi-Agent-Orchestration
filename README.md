@@ -182,6 +182,12 @@ bash start.sh
 bash start.sh --setup
 ```
 
+Use the command exactly as plain bash (no VS Code preview link):
+
+```bash
+bash start.sh --setup
+```
+
 #### Manual startup (all platforms)
 
 ```bash
@@ -198,6 +204,15 @@ Frontend: `http://127.0.0.1:5173`
 Backend health: `http://127.0.0.1:8000/api/health`
 
 > Important: if you see `http proxy error: /api/init ECONNREFUSED 127.0.0.1:8000`, the frontend is running but the backend is not reachable. Start the backend first and re-open the frontend.
+
+### Recent Updates (Mar 2026)
+
+- Added cross-platform launchers: `start.ps1` (Windows) and improved `start.sh` (Linux/WSL/macOS).
+- `start.sh` now has a fast default mode and an explicit setup mode (`--setup`) to avoid reinstalling dependencies on every run.
+- Improved backend env handling: `.env` loading is forced with override semantics and startup logs now show API key detection status.
+- Added frontend init error visibility for easier diagnosis when backend is offline.
+- Applied Vite vendor chunk splitting to reduce large bundle warnings.
+- Refined UI with a pastel palette (avoiding pure white surfaces) and moved novelty details from Sidebar to Architecture/About.
 
 ---
 
