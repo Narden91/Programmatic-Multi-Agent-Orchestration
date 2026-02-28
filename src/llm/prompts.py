@@ -174,3 +174,50 @@ async def orchestrate():
 ```
 
 Write the orchestration code for the User Query now:"""
+
+    @staticmethod
+    def create_retry_prompt(
+        query: str,
+        failed_code: str,
+        error: str,
+        available_experts: List[str],
+    ) -> str:
+        """Create a retry prompt that includes the failing code and error."""
+        experts_desc = {
+            "technical": "programming, technology, mathematics, sciences",
+            "creative": "brainstorming, storytelling, creative content",
+            "analytical": "data analysis, comparisons, logical decisions",
+            "general": "general conversation, facts, basic information"
+        }
+
+        experts_list = "\n".join([
+            f"- query_{expert}_expert(prompt: str) -> str : for {experts_desc.get(expert, 'general queries')}"
+            for expert in available_experts
+        ])
+
+        return f"""You are an advanced AI orchestrator. A previously generated script FAILED during execution. Your job is to fix the script.
+
+User Query: "{query}"
+
+Available async functions (tools):
+{experts_list}
+- asyncio.gather(*tasks)
+
+--- FAILED SCRIPT ---
+```python
+{failed_code}
+```
+
+--- ERROR ---
+{error}
+
+--- INSTRUCTIONS ---
+1. Analyze the error and the failed script above.
+2. Fix the issue and rewrite the script.
+3. You MUST define exactly ONE function called `async def orchestrate():` with no parameters.
+4. The function must RETURN a single final string.
+5. Only output valid Python code inside a single ```python codeblock.
+6. You do NOT need to import the tool functions or `asyncio`; they are already in the global namespace.
+7. Do NOT use `import` statements — they are blocked by the sandbox.
+
+Write the fixed orchestration code now:"""

@@ -17,10 +17,16 @@ class OrchestratorAgent(BaseAgent):
     def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
         code_failure = state.get('code_execution_error')
+        previous_code = state.get('generated_code', '')
         
         # Determine prompt based on whether it is a retry
-        if code_failure:
-            prompt = f"The previous script generated an error: {code_failure}. Please fix the script for query: {query}"
+        if code_failure and previous_code:
+            prompt = self.prompts.create_retry_prompt(
+                query=query,
+                failed_code=previous_code,
+                error=code_failure,
+                available_experts=self.available_experts,
+            )
         else:
             prompt = self.prompts.create_orchestration_prompt(
                 query=query,
@@ -32,6 +38,7 @@ class OrchestratorAgent(BaseAgent):
         
         return {
             "generated_code": generated_code,
+            "code_execution_error": "",
             "reasoning_steps": [self._log_step(
                 action="Generated orchestration code",
                 details={
@@ -54,9 +61,9 @@ class OrchestratorAgent(BaseAgent):
 class CodeExecutionAgent(BaseAgent):
     """Agent that executes the generated orchestrator script"""
 
-    def __init__(self, llm_provider):
+    def __init__(self, llm_provider, timeout_seconds: int = 60):
         super().__init__("CodeExecutor", llm_provider)
-        self.sandbox = CodeSandbox()
+        self.sandbox = CodeSandbox(timeout_seconds=timeout_seconds)
 
     def execute(self, state: MoEState) -> Dict[str, Any]:
         raise NotImplementedError("CodeExecutor must be run async via aexecute()")

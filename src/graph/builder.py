@@ -42,7 +42,10 @@ class MoEGraphBuilder:
             list(self.config.expert_configs.keys())
         )
         
-        self.agents['code_executor'] = CodeExecutionAgent(None) # Code execution doesn't need LLM
+        self.agents['code_executor'] = CodeExecutionAgent(
+            None,  # Code execution doesn't need LLM
+            timeout_seconds=self.config.request_timeout,
+        )
     
     def _should_retry_code(self, state: MoEState) -> str:
         """Determine whether to retry if execution failed"""
