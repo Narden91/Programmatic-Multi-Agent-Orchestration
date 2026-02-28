@@ -3,17 +3,34 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import os
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
+logger = logging.getLogger("moe.api")
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=False)
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
+# override=True ensures .env values always win (even if the var already
+# exists as an empty string in the process environment).
+loaded = load_dotenv(dotenv_path=_ENV_FILE, override=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
+    logger.info("dotenv loaded from %s  (file exists: %s)", _ENV_FILE, _ENV_FILE.exists())
+    logger.info("GROQ_API_KEY detected: %s", key_present)
+    if not key_present:
+        logger.warning(
+            "No GROQ_API_KEY found. Create a .env file at %s with GROQ_API_KEY=<key>",
+            _ENV_FILE,
+        )
     yield
 
 

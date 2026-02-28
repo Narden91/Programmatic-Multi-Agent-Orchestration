@@ -12,4 +12,21 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-motion': ['framer-motion'],
+          'vendor-charts': ['recharts'],
+          'vendor-syntax': [
+            'react-syntax-highlighter',
+            'react-syntax-highlighter/dist/esm/styles/prism',
+          ],
+          'vendor-markdown': ['react-markdown', 'remark-gfm'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
+    },
+  },
 })

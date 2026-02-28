@@ -91,7 +91,9 @@ export default function App() {
         dispatch({ type: 'SET_CONFIG', payload: { hasEnvKey: data.has_env_api_key } })
         dispatch({ type: 'SET_MODELS', payload: data.models })
       })
-      .catch(() => {})
+      .catch((err) => {
+        console.warn('[MoE] Init failed – is the backend running on :8000?', err)
+      })
   }, [])
 
   const handleSend = useCallback(
