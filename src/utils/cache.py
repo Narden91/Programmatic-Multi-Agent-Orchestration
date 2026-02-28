@@ -27,7 +27,7 @@ class ResponseCache:
     def _generate_key(self, query: str, expert_type: str) -> str:
         """Generate cache key from query and expert type"""
         content = f"{expert_type}:{query}"
-        return hashlib.md5(content.encode()).hexdigest()
+        return hashlib.sha256(content.encode()).hexdigest()
     
     def get(self, query: str, expert_type: str) -> Optional[str]:
         """

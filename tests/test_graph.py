@@ -5,7 +5,7 @@ Tests for graph construction
 import pytest
 from unittest.mock import Mock, patch
 from src.graph.builder import MoEGraphBuilder
-from src.core.config import MoEConfig
+from src.core.config import MoEConfig, SecretStr
 
 
 class TestMoEGraphBuilder:
@@ -17,7 +17,7 @@ class TestMoEGraphBuilder:
         mock_llm = Mock()
         mock_factory.return_value = mock_llm
         
-        config = MoEConfig(groq_api_key="test_key")
+        config = MoEConfig(groq_api_key=SecretStr("test_key"))
         builder = MoEGraphBuilder(config)
         
         # Check the programmatic orchestration agents are initialized
@@ -31,7 +31,7 @@ class TestMoEGraphBuilder:
         mock_llm.invoke = Mock(return_value=Mock(content="test"))
         mock_factory.return_value = mock_llm
         
-        config = MoEConfig(groq_api_key="test_key")
+        config = MoEConfig(groq_api_key=SecretStr("test_key"))
         builder = MoEGraphBuilder(config)
         
         # Should not raise

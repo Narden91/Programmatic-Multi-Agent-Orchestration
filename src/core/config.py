@@ -6,6 +6,43 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ---------------------------------------------------------------------------
+# Secret wrapper — prevents API keys from leaking in repr / logs / tracebacks
+# ---------------------------------------------------------------------------
+
+class SecretStr:
+    """Opaque string wrapper that masks its value in repr/str.
+
+    Use ``.get_secret_value()`` to retrieve the raw string.  This prevents
+    accidental exposure in logs, tracebacks, and ``__repr__`` output.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str = "") -> None:
+        object.__setattr__(self, "_value", value)
+
+    def get_secret_value(self) -> str:
+        return self._value
+
+    def __repr__(self) -> str:
+        return "SecretStr('**********')" if self._value else "SecretStr('')"
+
+    def __str__(self) -> str:
+        return "**********" if self._value else ""
+
+    def __bool__(self) -> bool:
+        return bool(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SecretStr):
+            return self._value == other._value
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(self._value)
+
+
 @dataclass
 class LLMConfig:
     """Configuration for individual LLM"""
@@ -40,9 +77,9 @@ class ExpertConfig:
 class MoEConfig:
     """Main configuration for the MoE system"""
     
-    groq_api_key: str = field(default_factory=lambda: os.getenv("GROQ_API_KEY", ""))
-    openai_api_key: str = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
-    anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", ""))
+    groq_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("GROQ_API_KEY", "")))
+    openai_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("OPENAI_API_KEY", "")))
+    anthropic_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("ANTHROPIC_API_KEY", "")))
     
     orchestrator_config: LLMConfig = field(default_factory=lambda: LLMConfig.from_env("ORCHESTRATOR"))
     expert_configs: Dict[str, ExpertConfig] = field(default_factory=dict)
@@ -131,6 +168,11 @@ class MoEConfig:
             return "anthropic"
         else:
             raise ValueError("No valid API key found")
+
+    def get_api_key(self, provider_type: str) -> str:
+        """Safely retrieve the raw API key string for a given provider type."""
+        secret: SecretStr = getattr(self, f"{provider_type}_api_key")
+        return secret.get_secret_value()
 
 
 config = MoEConfig()

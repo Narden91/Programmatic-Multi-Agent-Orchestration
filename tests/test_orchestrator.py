@@ -7,7 +7,7 @@ import asyncio
 import pytest
 from unittest.mock import Mock, patch, AsyncMock
 
-from src.core.config import MoEConfig
+from src.core.config import MoEConfig, SecretStr
 from src.core.state import create_initial_state
 from src.core.sandbox import CodeSandbox, SandboxSecurityError, SandboxTimeoutError
 from src.graph.builder import MoEGraphBuilder
@@ -283,7 +283,7 @@ class TestOrchestratorIntegration:
     def test_end_to_end_orchestration(self):
         """Test that orchestrator generates code, sandbox executes it, and state is complete"""
         async def run():
-            config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY"))
+            config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY")))
             config.validate()
 
             builder = MoEGraphBuilder(config)

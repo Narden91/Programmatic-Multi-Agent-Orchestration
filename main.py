@@ -3,6 +3,7 @@
 import asyncio
 import argparse
 import os
+import subprocess
 import sys
 from dotenv import load_dotenv
 
@@ -16,12 +17,12 @@ async def run_query(
     memory=None,
 ) -> None:
     """Run a single query through the programmatic orchestration pipeline."""
-    from src.core.config import MoEConfig
+    from src.core.config import MoEConfig, SecretStr
     from src.core.state import create_initial_state
     from src.graph.builder import MoEGraphBuilder
     from src.utils.metrics import reset_token_tracker
 
-    config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
+    config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     if model:
         config.orchestrator_config.model_name = model
         for ec in config.expert_configs.values():
@@ -119,7 +120,10 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.ui:
-        os.system(f"{sys.executable} -m streamlit run ui/app.py")
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", "ui/app.py"],
+            check=False,
+        )
         return
 
     if args.interactive:

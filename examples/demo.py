@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
 
-from src.core.config import MoEConfig
+from src.core.config import MoEConfig, SecretStr
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
 from src.utils.logging import setup_logger
@@ -49,7 +49,7 @@ async def demo_single_expert() -> None:
     """Demo 1: Simple single-expert query."""
     _section("DEMO 1: Single Expert — General Knowledge")
 
-    config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
+    config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     graph = MoEGraphBuilder(config).build()
 
     query = "What is the capital of France?"
@@ -70,7 +70,7 @@ async def demo_multi_expert() -> None:
     """Demo 2: Multi-expert parallel query."""
     _section("DEMO 2: Multi-Expert — Technical + Creative")
 
-    config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
+    config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     graph = MoEGraphBuilder(config).build()
 
     query = "Explain quantum computing with creative analogies"
@@ -100,7 +100,7 @@ async def demo_with_metrics() -> None:
     _section("DEMO 3: Performance & Token Metrics")
 
     metrics = PerformanceMetrics()
-    config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
+    config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     graph = MoEGraphBuilder(config).build()
 
     queries = [
@@ -145,7 +145,7 @@ async def demo_dynamic_expert() -> None:
     )
     print("Registered new 'philosophical' expert")
 
-    config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
+    config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     graph = MoEGraphBuilder(config).build()
 
     query = "Is free will real? Discuss from a philosophical and technical perspective."

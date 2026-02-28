@@ -142,6 +142,11 @@ class ConversationMemory:
             return
         data = [t.to_dict() for t in self._turns]
         self._persist_path.write_text(json.dumps(data, indent=2))
+        # Restrict file permissions to owner only (best-effort on Windows)
+        try:
+            self._persist_path.chmod(0o600)
+        except OSError:
+            pass
 
     def _load(self) -> None:
         if self._persist_path is None:

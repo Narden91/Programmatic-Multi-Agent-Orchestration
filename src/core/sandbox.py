@@ -7,6 +7,35 @@ from ..agents.tools import get_tool_functions
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Safe stdout sink — captures output instead of leaking to real stdout
+# ---------------------------------------------------------------------------
+
+class _SandboxPrinter:
+    """Drop-in replacement for ``print()`` inside the sandbox.
+
+    Captures output in a bounded buffer instead of writing to the host
+    process's stdout, preventing data exfiltration.
+    """
+
+    MAX_CHARS = 10_000
+
+    def __init__(self) -> None:
+        self._buffer: list[str] = []
+        self._chars = 0
+
+    def __call__(self, *args: Any, **kwargs: Any) -> None:
+        if self._chars >= self.MAX_CHARS:
+            return
+        text = " ".join(str(a) for a in args)
+        self._buffer.append(text)
+        self._chars += len(text)
+
+    @property
+    def output(self) -> str:
+        return "\n".join(self._buffer)
+
+
 class SandboxSecurityError(Exception):
     """Raised when generated code violates sandbox security constraints."""
 
@@ -45,7 +74,7 @@ _SAFE_BUILTINS = {
     "map": map,
     "max": max,
     "min": min,
-    "print": print,
+    # print is replaced by _SandboxPrinter() per-execution (see _build_globals)
     "range": range,
     "repr": repr,
     "reversed": reversed,
@@ -67,6 +96,8 @@ _BLOCKED_ATTRIBUTES: Set[str] = {
     "__import__", "__subclasses__", "__bases__", "__mro__",
     "__globals__", "__code__", "__builtins__", "__class__",
     "__reduce__", "__reduce_ex__",
+    "__qualname__", "__module__", "__dict__", "__weakref__",
+    "__init_subclass__", "__set_name__",
 }
 
 # Builtin names that must never appear as plain Name references
@@ -126,7 +157,11 @@ class CodeSandbox:
         tool_fns = get_tool_functions()
         self.allowed_globals: Dict[str, Any] = {
             # Locked-down builtins — the ONLY builtins the code can see
-            "__builtins__": dict(_SAFE_BUILTINS),
+            "__builtins__": {
+                **_SAFE_BUILTINS,
+                # print is a per-execution sandbox printer (replaced in execute())
+                "print": _SandboxPrinter(),
+            },
             "asyncio": asyncio,
             # Tracked expert wrappers (dynamically generated from registry)
             **{
@@ -202,6 +237,10 @@ class CodeSandbox:
         # ---- Step 2: Execute with restrictions -----------------------
         self._call_log = {}
         local_vars: Dict[str, Any] = {}
+
+        # Fresh printer per execution to avoid cross-request data leakage
+        sandbox_printer = _SandboxPrinter()
+        self.allowed_globals["__builtins__"]["print"] = sandbox_printer
 
         try:
             # Compile and execute the definition of the functions

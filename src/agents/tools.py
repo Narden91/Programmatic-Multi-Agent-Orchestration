@@ -53,7 +53,7 @@ async def spawn_expert(expert_type: str, prompt: str) -> str:
                 if expert_cfg and expert_cfg.provider_type
                 else config.get_provider_type()
             )
-            api_key = getattr(config, f"{provider_type}_api_key")
+            api_key = config.get_api_key(provider_type)
 
             llm_config = expert_cfg.llm_config if expert_cfg else config.orchestrator_config
             confidence = (

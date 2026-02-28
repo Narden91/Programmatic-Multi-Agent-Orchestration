@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.config import MoEConfig
+from src.core.config import MoEConfig, SecretStr
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
 
@@ -198,7 +198,7 @@ for msg in st.session_state.messages:
 def process_query(query: str, api_key: str, model: str):
     """Process a query through the MoE system"""
     try:
-        config = MoEConfig(groq_api_key=api_key)
+        config = MoEConfig(groq_api_key=SecretStr(api_key))
         
         config.router_config.model_name = model
         config.synthesizer_config.model_name = model

@@ -94,11 +94,17 @@ class Tracer:
     *  Producers call :meth:`emit` to send an event.
     *  Consumers call :meth:`subscribe` to receive an async iterator.
     *  Multiple concurrent subscribers are supported.
+
+    Security: history is capped at *max_history* entries (default 500)
+    to bound memory usage and limit the blast radius of data leakage.
     """
 
-    def __init__(self) -> None:
+    DEFAULT_MAX_HISTORY = 500
+
+    def __init__(self, max_history: int = DEFAULT_MAX_HISTORY) -> None:
         self._subscribers: List[asyncio.Queue[TraceEvent | None]] = []
         self._history: List[TraceEvent] = []
+        self._max_history = max_history
         self._closed = False
 
     # ---- Producer API ------------------------------------------------
@@ -106,6 +112,8 @@ class Tracer:
     async def emit(self, event: TraceEvent) -> None:
         """Broadcast *event* to every active subscriber."""
         self._history.append(event)
+        if len(self._history) > self._max_history:
+            self._history = self._history[-self._max_history:]
         for q in self._subscribers:
             await q.put(event)
 
@@ -116,6 +124,8 @@ class Tracer:
         event-loop thread (e.g. a LangGraph node that isn't *async def*).
         """
         self._history.append(event)
+        if len(self._history) > self._max_history:
+            self._history = self._history[-self._max_history:]
         for q in self._subscribers:
             try:
                 q.put_nowait(event)

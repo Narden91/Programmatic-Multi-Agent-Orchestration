@@ -60,7 +60,7 @@ class OrchestratorAgent(BaseAgent):
         _kind = TraceKind.ORCHESTRATOR_RETRY if code_failure else TraceKind.ORCHESTRATOR_START
         get_tracer().emit_sync(TraceEvent(
             kind=_kind.value, agent=self.name,
-            data={"query": query, "is_retry": bool(code_failure), "few_shot": len(few_shot)},
+            data={"query_len": len(query), "is_retry": bool(code_failure), "few_shot": len(few_shot)},
         ))
 
         response = self.invoke_with_retry(prompt)

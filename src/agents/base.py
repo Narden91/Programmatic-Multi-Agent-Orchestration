@@ -72,9 +72,9 @@ class BaseAgent(_AgentMixin, ABC):
                     logger.info(f"{self.name}: Retrying in {sleep_time}s...")
                     time.sleep(sleep_time)
 
-        error_msg = f"{self.name}: All {self.max_retries} retry attempts failed. Last error: {str(last_error)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        error_msg = f"{self.name}: All {self.max_retries} retry attempts failed."
+        logger.error(f"{error_msg} Last error: {str(last_error)}")
+        raise Exception(error_msg) from last_error
 
     async def ainvoke_with_retry(self, prompt: str) -> Any:
         """Asynchronously invoke LLM with retry logic and exponential backoff."""
@@ -97,9 +97,9 @@ class BaseAgent(_AgentMixin, ABC):
                     logger.info(f"{self.name}: Retrying async in {sleep_time}s...")
                     await asyncio.sleep(sleep_time)
 
-        error_msg = f"{self.name}: All {self.max_retries} async retry attempts failed. Last error: {str(last_error)}"
-        logger.error(error_msg)
-        raise Exception(error_msg)
+        error_msg = f"{self.name}: All {self.max_retries} async retry attempts failed."
+        logger.error(f"{error_msg} Last error: {str(last_error)}")
+        raise Exception(error_msg) from last_error
 
 
 # ======================================================================

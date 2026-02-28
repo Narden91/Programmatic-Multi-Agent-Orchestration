@@ -38,7 +38,7 @@ class MoEGraphBuilder:
     def _initialize_agents(self):
         """Initialize all agent instances"""
         provider_type = self.config.get_provider_type()
-        api_key = getattr(self.config, f"{provider_type}_api_key")
+        api_key = self.config.get_api_key(provider_type)
         
         # Reuse orchestrator config for the script-generating LLM
         orchestrator_llm = LLMFactory.create_provider(

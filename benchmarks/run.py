@@ -28,7 +28,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Late import so benchmarks module can be imported without side-effects
-    from src.core.config import MoEConfig
+    from src.core.config import MoEConfig, SecretStr
     from src.graph.builder import MoEGraphBuilder
 
     cfg = MoEConfig()
