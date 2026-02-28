@@ -25,6 +25,8 @@ class MoEState(TypedDict):
     generated_code: str
     code_execution_error: str
     code_execution_iterations: int
+    token_usage: Dict
+    execution_plan: Dict
 
 
 def create_initial_state(query: str) -> MoEState:
@@ -40,5 +42,7 @@ def create_initial_state(query: str) -> MoEState:
         "metadata": {},
         "generated_code": "",
         "code_execution_error": "",
-        "code_execution_iterations": 0
+        "code_execution_iterations": 0,
+        "token_usage": {},
+        "execution_plan": {},
     }

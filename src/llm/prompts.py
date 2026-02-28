@@ -1,87 +1,89 @@
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 
 class ExpertPrompts:
-    """Prompts for expert agents"""
-    
+    """Legacy shim — prompt creation now lives in the ExpertRegistry.
+
+    Kept only so that older code that references ``ExpertPrompts`` still
+    imports without error.  New code should use
+    ``registry.create_prompt(expert_type, query)`` instead.
+    """
+
     @staticmethod
     def create_technical_prompt(query: str) -> str:
-        """Create technical expert prompt"""
-        return f"""You are a technical expert specialized in programming, technology, and sciences.
+        from ..agents.registry import registry
+        return registry.create_prompt("technical", query)
 
-Query: "{query}"
-
-Provide a response that is:
-- Precise and detailed
-- Includes concrete examples if relevant
-- Uses appropriate technical terminology
-- Follows best practices
-
-Response:"""
-    
     @staticmethod
     def create_creative_prompt(query: str) -> str:
-        """Create creative expert prompt"""
-        return f"""You are a creative expert specialized in storytelling, brainstorming, and original content.
+        from ..agents.registry import registry
+        return registry.create_prompt("creative", query)
 
-Query: "{query}"
-
-Provide a response that is:
-- Innovative and original
-- Engaging and interesting
-- Uses creative metaphors or analogies
-- Thinks outside the box
-
-Response:"""
-    
     @staticmethod
     def create_analytical_prompt(query: str) -> str:
-        """Create analytical expert prompt"""
-        return f"""You are an analytical expert specialized in data analysis, logic, and rational decisions.
+        from ..agents.registry import registry
+        return registry.create_prompt("analytical", query)
 
-Query: "{query}"
-
-Provide a response that is:
-- Structured and methodical
-- Includes pros/cons if applicable
-- Based on data and facts
-- Uses step-by-step reasoning
-
-Response:"""
-    
     @staticmethod
     def create_general_prompt(query: str) -> str:
-        """Create general expert prompt"""
-        return f"""You are a general knowledge expert, friendly and conversational.
-
-Query: "{query}"
-
-Provide a response that is:
-- Clear and understandable
-- Friendly and conversational
-- Complete but concise
-- Suitable for all audiences
-
-Response:"""
+        from ..agents.registry import registry
+        return registry.create_prompt("general", query)
 
 
 class OrchestratorPrompts:
     """Prompts for the Code Orchestrator agent"""
     
     @staticmethod
-    def create_orchestration_prompt(query: str, available_experts: List[str]) -> str:
-        """Create orchestration prompt for code generation"""
-        experts_desc = {
+    def create_orchestration_prompt(
+        query: str,
+        available_experts: List[str],
+        expert_descriptions: Optional[Dict[str, str]] = None,
+        few_shot_examples: Optional[List[Tuple[str, str]]] = None,
+    ) -> str:
+        """Create orchestration prompt for code generation.
+
+        Parameters
+        ----------
+        query : str
+            The user's question.
+        available_experts : list[str]
+            Expert types the sandbox can call.
+        expert_descriptions : dict[str, str] | None
+            ``{expert_type: description}`` — when provided, used instead of
+            the built-in fallback descriptions.
+        few_shot_examples : list[tuple[str, str]] | None
+            ``[(query, code), ...]`` past successful scripts to include as
+            few-shot examples.
+        """
+        # Fall back to built-in descriptions when the registry isn't passed
+        _fallback = {
             "technical": "programming, technology, mathematics, sciences",
             "creative": "brainstorming, storytelling, creative content",
             "analytical": "data analysis, comparisons, logical decisions",
-            "general": "general conversation, facts, basic information"
+            "general": "general conversation, facts, basic information",
         }
-        
+        descs = expert_descriptions or _fallback
+
         experts_list = "\n".join([
-            f"- query_{expert}_expert(prompt: str) -> str : for {experts_desc.get(expert, 'general queries')}"
+            f"- query_{expert}_expert(prompt: str) -> str : for {descs.get(expert, 'general queries')}"
             for expert in available_experts
         ])
+
+        # Optional few-shot section
+        few_shot_section = ""
+        if few_shot_examples:
+            examples = []
+            for i, (ex_query, ex_code) in enumerate(few_shot_examples, 1):
+                examples.append(
+                    f"--- Example {i} ---\n"
+                    f'Query: "{ex_query}"\n'
+                    f"```python\n{ex_code}\n```"
+                )
+            few_shot_section = (
+                "\n\nHere are examples of previously successful orchestration scripts:\n"
+                + "\n\n".join(examples)
+                + "\n\nUse these as inspiration, but adapt to the current query.\n"
+            )
         
         return f"""You are an advanced AI orchestrator. Your task is to write an async Python script that solves the user's query by programmatically calling expert micro-agents.
 
@@ -100,7 +102,7 @@ Instructions:
 6. Only output valid Python code inside a single ```python codeblock. Do not output anything outside the codeblock.
 7. You may use standard Python string manipulation and conditional logic (`if`/`else`).
 8. You do NOT need to import the tool functions or `asyncio`; they are already injected into the global namespace.
-
+{few_shot_section}
 Example:
 ```python
 async def orchestrate():
@@ -121,17 +123,19 @@ Write the orchestration code for the User Query now:"""
         failed_code: str,
         error: str,
         available_experts: List[str],
+        expert_descriptions: Optional[Dict[str, str]] = None,
     ) -> str:
         """Create a retry prompt that includes the failing code and error."""
-        experts_desc = {
+        _fallback = {
             "technical": "programming, technology, mathematics, sciences",
             "creative": "brainstorming, storytelling, creative content",
             "analytical": "data analysis, comparisons, logical decisions",
-            "general": "general conversation, facts, basic information"
+            "general": "general conversation, facts, basic information",
         }
+        descs = expert_descriptions or _fallback
 
         experts_list = "\n".join([
-            f"- query_{expert}_expert(prompt: str) -> str : for {experts_desc.get(expert, 'general queries')}"
+            f"- query_{expert}_expert(prompt: str) -> str : for {descs.get(expert, 'general queries')}"
             for expert in available_experts
         ])
 

@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict
 from datetime import datetime
 import time
 import asyncio
 import logging
 from ..core.state import MoEState
 from ..llm.providers import LLMProvider
+from ..utils.metrics import get_token_tracker
 
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,9 @@ class BaseAgent(_AgentMixin, ABC):
         for attempt in range(self.max_retries):
             try:
                 response = self.llm.invoke(prompt)
+                get_token_tracker().record_from_response(
+                    self.name, self.llm.model_name, response
+                )
                 return response
             except Exception as e:
                 last_error = e
@@ -79,6 +83,9 @@ class BaseAgent(_AgentMixin, ABC):
         for attempt in range(self.max_retries):
             try:
                 response = await self.llm.ainvoke(prompt)
+                get_token_tracker().record_from_response(
+                    self.name, self.llm.model_name, response
+                )
                 return response
             except Exception as e:
                 last_error = e

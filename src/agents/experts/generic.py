@@ -1,48 +1,28 @@
 from typing import Dict, Any, Optional
 from ..base import BaseAgent
 from ...core.state import MoEState
-from ...llm.prompts import ExpertPrompts
+from ..registry import registry
 from ...utils.cache import ResponseCache
 
 
 class GenericExpert(BaseAgent):
-    """Generic expert that can handle any expert type"""
-    
-    EXPERT_PROMPTS = {
-        'technical': ExpertPrompts.create_technical_prompt,
-        'creative': ExpertPrompts.create_creative_prompt,
-        'analytical': ExpertPrompts.create_analytical_prompt,
-        'general': ExpertPrompts.create_general_prompt
-    }
-    
-    EXPERT_NAMES = {
-        'technical': 'Technical Expert',
-        'creative': 'Creative Expert',
-        'analytical': 'Analytical Expert',
-        'general': 'General Expert'
-    }
-    
+    """Generic expert that can handle any registered expert type"""
+
     def __init__(
-        self, 
-        expert_type: str, 
-        llm_provider, 
+        self,
+        expert_type: str,
+        llm_provider,
         confidence_threshold: float = 0.75,
-        cache: Optional[ResponseCache] = None
+        cache: Optional[ResponseCache] = None,
     ):
-        """
-        Initialize generic expert.
-        
-        Args:
-            expert_type: Type of expert ('technical', 'creative', 'analytical', 'general')
-            llm_provider: LLM provider instance
-            confidence_threshold: Confidence score for this expert
-            cache: Optional ResponseCache instance for caching responses
-        """
-        if expert_type not in self.EXPERT_PROMPTS:
-            raise ValueError(f"Invalid expert type: {expert_type}. Must be one of {list(self.EXPERT_PROMPTS.keys())}")
-        
+        if expert_type not in registry:
+            raise ValueError(
+                f"Invalid expert type: {expert_type}. "
+                f"Must be one of {registry.types}"
+            )
+
         self.expert_type = expert_type
-        expert_name = self.EXPERT_NAMES[expert_type]
+        expert_name = f"{expert_type.capitalize()} Expert"
         super().__init__(expert_name, llm_provider)
         self.confidence_threshold = confidence_threshold
         self.cache = cache
@@ -70,9 +50,8 @@ class GenericExpert(BaseAgent):
                     )]
                 }
         
-        # Get the appropriate prompt creator for this expert type
-        prompt_creator = self.EXPERT_PROMPTS[self.expert_type]
-        prompt = prompt_creator(query)
+        # Get the appropriate prompt from the registry
+        prompt = registry.create_prompt(self.expert_type, query)
         
         # Invoke LLM with retry logic
         response = self.invoke_with_retry(prompt)
@@ -103,10 +82,9 @@ class GenericExpert(BaseAgent):
             if cached_response:
                 return cached_response
         
-        # Get the appropriate prompt creator for this expert type
-        prompt_creator = self.EXPERT_PROMPTS[self.expert_type]
-        prompt = prompt_creator(query)
-        
+        # Get the appropriate prompt from the registry
+        prompt = registry.create_prompt(self.expert_type, query)
+
         # Invoke LLM with retry logic
         response = await self.ainvoke_with_retry(prompt)
         response_content = response.content

@@ -6,7 +6,9 @@ from ..core.config import LLMConfig
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers"""
-    
+
+    model_name: str = "unknown"
+
     @abstractmethod
     def invoke(self, prompt: str) -> Any:
         """Invoke the LLM with a prompt"""
@@ -23,6 +25,7 @@ class GroqProvider(LLMProvider):
     
     def __init__(self, api_key: str, config: LLMConfig):
         """Initialize Groq provider"""
+        self.model_name = config.model_name
         self.llm = ChatGroq(
             api_key=api_key,
             model_name=config.model_name,

@@ -14,6 +14,7 @@ async def run_query(query: str, model: str | None = None) -> None:
     from src.core.config import MoEConfig
     from src.core.state import create_initial_state
     from src.graph.builder import MoEGraphBuilder
+    from src.utils.metrics import reset_token_tracker
 
     config = MoEConfig(groq_api_key=os.getenv("GROQ_API_KEY", ""))
     if model:
@@ -24,6 +25,10 @@ async def run_query(query: str, model: str | None = None) -> None:
 
     graph = MoEGraphBuilder(config).build()
     state = create_initial_state(query)
+
+    # Reset token tracker for this request
+    tracker = reset_token_tracker()
+
     result = await graph.ainvoke(state)
 
     print("\n--- Generated Orchestration Code ---")
@@ -36,6 +41,27 @@ async def run_query(query: str, model: str | None = None) -> None:
     iterations = result.get("code_execution_iterations", 0)
     if iterations > 1:
         print(f"\n(sandbox retried {iterations} time(s))")
+
+    # Token usage summary
+    usage = result.get("token_usage", {})
+    if usage.get("total_tokens"):
+        print(f"\n--- Token Usage ---")
+        print(f"  Input:  {usage['total_input_tokens']:>7,}")
+        print(f"  Output: {usage['total_output_tokens']:>7,}")
+        print(f"  Total:  {usage['total_tokens']:>7,}")
+        print(f"  Cost:   ${usage['estimated_cost_usd']:.4f}")
+
+    # Execution plan summary
+    plan = result.get("execution_plan", {})
+    if plan.get("calls"):
+        mode = []
+        if plan.get("has_parallel"):
+            mode.append(f"{plan['gather_groups']} parallel group(s)")
+        if plan.get("has_sequential"):
+            mode.append("sequential")
+        print(f"\n--- Execution Plan ---")
+        print(f"  Mode:    {' + '.join(mode)}")
+        print(f"  Experts: {', '.join(plan['experts_used'])}")
 
 
 def main() -> None:

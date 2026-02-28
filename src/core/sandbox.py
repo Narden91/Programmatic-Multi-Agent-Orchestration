@@ -2,12 +2,7 @@ import ast
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Set
-from ..agents.tools import (
-    query_technical_expert,
-    query_analytical_expert,
-    query_creative_expert,
-    query_general_expert
-)
+from ..agents.tools import get_tool_functions
 
 logger = logging.getLogger(__name__)
 
@@ -104,13 +99,8 @@ class CodeSandbox:
     propagated back into the LangGraph state.
     """
 
-    # Mapping from canonical expert name to the underlying tool function
-    _EXPERT_TOOLS = {
-        "technical": query_technical_expert,
-        "analytical": query_analytical_expert,
-        "creative": query_creative_expert,
-        "general": query_general_expert,
-    }
+    # Expert tools are built dynamically from the registry at init time
+    # via ``get_tool_functions()``.
 
     def __init__(self, timeout_seconds: int = 60):
         self.timeout_seconds = timeout_seconds
@@ -133,14 +123,15 @@ class CodeSandbox:
 
     def _build_globals(self):
         """Construct the globals dict injected into the sandbox, with tracked wrappers."""
+        tool_fns = get_tool_functions()
         self.allowed_globals: Dict[str, Any] = {
             # Locked-down builtins — the ONLY builtins the code can see
             "__builtins__": dict(_SAFE_BUILTINS),
             "asyncio": asyncio,
-            # Tracked expert wrappers
+            # Tracked expert wrappers (dynamically generated from registry)
             **{
                 f"query_{name}_expert": self._make_tracked(name, fn)
-                for name, fn in self._EXPERT_TOOLS.items()
+                for name, fn in tool_fns.items()
             },
         }
 

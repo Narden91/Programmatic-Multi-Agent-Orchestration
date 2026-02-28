@@ -80,7 +80,10 @@ class TestCodeExecutionAgent:
 
     def test_successful_execution_populates_state(self):
         """Test that a successful sandbox run returns answer + expert metadata"""
-        agent = CodeExecutionAgent(None)
+        from src.utils.metrics import reset_token_tracker
+        reset_token_tracker()
+
+        agent = CodeExecutionAgent()
 
         state = create_initial_state("test")
         state["generated_code"] = (
@@ -110,7 +113,10 @@ class TestCodeExecutionAgent:
 
     def test_failed_execution_records_error(self):
         """Test that a sandbox error is captured without crashing"""
-        agent = CodeExecutionAgent(None)
+        from src.utils.metrics import reset_token_tracker
+        reset_token_tracker()
+
+        agent = CodeExecutionAgent()
 
         state = create_initial_state("test")
         state["generated_code"] = "invalid code"

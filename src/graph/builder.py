@@ -1,19 +1,22 @@
 from langgraph.graph import StateGraph, END
 from ..core.state import MoEState
 from ..agents.orchestrator import OrchestratorAgent, CodeExecutionAgent
+from ..agents.registry import registry
 from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
 from ..utils.cache import ResponseCache
+from ..utils.script_bank import ScriptBank
 
 
 class MoEGraphBuilder:
     """Builder for constructing the MoE LangGraph workflow"""
     
-    def __init__(self, config: MoEConfig):
+    def __init__(self, config: MoEConfig, script_bank: ScriptBank | None = None):
         """Initialize graph builder"""
         self.config = config
         self.agents = {}
         self.cache = None
+        self.script_bank = script_bank or ScriptBank()
         self._initialize_cache()
         self._initialize_agents()
     
@@ -39,11 +42,13 @@ class MoEGraphBuilder:
         
         self.agents['orchestrator'] = OrchestratorAgent(
             orchestrator_llm,
-            list(self.config.expert_configs.keys())
+            available_experts=list(registry.types),
+            script_bank=self.script_bank,
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(
             timeout_seconds=self.config.request_timeout,
+            script_bank=self.script_bank,
         )
     
     def _should_retry_code(self, state: MoEState) -> str:
