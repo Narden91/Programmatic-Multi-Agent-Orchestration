@@ -2,6 +2,8 @@ import streamlit as st
 import sys
 from pathlib import Path
 import os
+import asyncio
+import threading
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -211,9 +213,42 @@ def process_query(query: str, api_key: str, model: str):
         graph = builder.build()
         
         initial_state = create_initial_state(query)
-        result = graph.invoke(initial_state)
+        timeout_seconds = max(int(config.request_timeout), 1)
+
+        async def _run_graph():
+            return await asyncio.wait_for(graph.ainvoke(initial_state), timeout=timeout_seconds)
+
+        def _run_async_sync(coro):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(coro)
+
+            outcome: dict[str, object] = {}
+
+            def _runner():
+                try:
+                    outcome["result"] = asyncio.run(coro)
+                except Exception as exc:
+                    outcome["error"] = exc
+
+            worker = threading.Thread(target=_runner, daemon=True)
+            worker.start()
+            worker.join()
+
+            if "error" in outcome:
+                raise outcome["error"]
+            return outcome.get("result")
+
+        result = _run_async_sync(_run_graph())
         
         return result
+    except asyncio.TimeoutError:
+        st.error(
+            f"Request timed out after {timeout_seconds}s. "
+            "Try a shorter query or increase REQUEST_TIMEOUT."
+        )
+        return None
     except Exception as e:
         st.error(f"Error: {str(e)}")
         return None
@@ -265,7 +300,8 @@ if "example_to_process" in st.session_state:
                 if code_error:
                     st.error(f"Execution Error: {code_error}")
     
-    st.rerun()
+    if result:
+        st.rerun()
 
 # Regular chat input
 if prompt := st.chat_input(placeholder="Ask me anything..."):
