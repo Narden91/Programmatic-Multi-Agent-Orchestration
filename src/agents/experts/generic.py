@@ -95,6 +95,28 @@ class GenericExpert(BaseAgent):
             )]
         }
     
+    async def aexecute(self, query: str) -> str:
+        """Asynchronously generate response to isolated query for tool execution"""
+        # Check cache first if available
+        if self.cache:
+            cached_response = self.cache.get(query, self.expert_type)
+            if cached_response:
+                return cached_response
+        
+        # Get the appropriate prompt creator for this expert type
+        prompt_creator = self.EXPERT_PROMPTS[self.expert_type]
+        prompt = prompt_creator(query)
+        
+        # Invoke LLM with retry logic
+        response = await self.ainvoke_with_retry(prompt)
+        response_content = response.content
+        
+        # Cache the response if cache is available
+        if self.cache:
+            self.cache.set(query, self.expert_type, response_content)
+        
+        return response_content
+    
     def _should_skip(self, state: MoEState) -> bool:
         """Check if this expert should skip execution"""
         return self.expert_type not in state.get('selected_experts', [])

@@ -12,6 +12,11 @@ class LLMProvider(ABC):
         """Invoke the LLM with a prompt"""
         pass
 
+    @abstractmethod
+    async def ainvoke(self, prompt: str) -> Any:
+        """Asynchronously invoke the LLM with a prompt"""
+        pass
+
 
 class GroqProvider(LLMProvider):
     """Groq LLM provider implementation"""
@@ -28,6 +33,10 @@ class GroqProvider(LLMProvider):
     def invoke(self, prompt: str) -> Any:
         """Invoke Groq LLM"""
         return self.llm.invoke(prompt)
+
+    async def ainvoke(self, prompt: str) -> Any:
+        """Asynchronously invoke Groq LLM"""
+        return await self.llm.ainvoke(prompt)
 
 
 class LLMFactory:

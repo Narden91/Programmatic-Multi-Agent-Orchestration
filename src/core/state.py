@@ -22,6 +22,9 @@ class MoEState(TypedDict):
     reasoning_steps: Annotated[List[Dict], merge_lists]
     confidence_scores: Annotated[Dict[str, float], merge_dicts]
     metadata: Dict
+    generated_code: str
+    code_execution_error: str
+    code_execution_iterations: int
 
 
 def create_initial_state(query: str) -> MoEState:
@@ -34,5 +37,8 @@ def create_initial_state(query: str) -> MoEState:
         "final_answer": "",
         "reasoning_steps": [],
         "confidence_scores": {},
-        "metadata": {}
+        "metadata": {},
+        "generated_code": "",
+        "code_execution_error": "",
+        "code_execution_iterations": 0
     }

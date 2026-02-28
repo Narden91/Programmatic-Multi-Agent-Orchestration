@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core.config import MoEConfig
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
-from ui.components.visualization import MoEVisualizer
 
 load_dotenv()
 
@@ -69,11 +68,11 @@ with st.sidebar:
     
     with st.expander("ℹ️ How It Works"):
         st.markdown("""
-        1. **Router** analyzes your query
-        2. **Selects** relevant expert(s)
-        3. **Experts** process in parallel
-        4. **Synthesizer** combines responses
-        5. **Final** answer delivered
+        1. **Orchestrator** analyzes your query
+        2. **Writes** an async Python script to solve it
+        3. **Sandbox** executes the code securely
+        4. **Micro-agents** are invoked programmatically
+        5. **Final** answer is returned contextually
         """)
     
     st.divider()
@@ -183,40 +182,17 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         
-        if msg["role"] == "assistant" and "experts" in msg:
-            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
-                experts_used = msg.get("experts", [])
-                expert_responses = msg.get("expert_responses", {})
+        if msg["role"] == "assistant" and "generated_code" in msg:
+            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
+                st.code(msg.get("generated_code", ""), language="python")
                 
-                if experts_used and expert_responses:
-                    st.markdown("""
-                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
-                                   padding: 1rem; 
-                                   border-radius: 8px; 
-                                   margin-bottom: 1rem;
-                                   border-left: 4px solid #0ea5e9;'>
-                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
-                                📊 This diagram shows the path your query took through the system, 
-                                from initial routing to final synthesis.
-                            </p>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    visualizer = MoEVisualizer()
-                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
-                    st.plotly_chart(flow_graph, use_container_width=True)
-            
-            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
-                experts_used = msg.get("experts", [])
-                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                iterations = msg.get("code_execution_iterations", 1)
+                if iterations > 1:
+                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
                 
-                expert_responses = msg.get("expert_responses", {})
-                if expert_responses and isinstance(expert_responses, dict):
-                    st.divider()
-                    for expert, response in expert_responses.items():
-                        st.markdown(f"**{expert.capitalize()} Expert:**")
-                        st.markdown(response)
-                        st.divider()
+                code_error = msg.get("code_execution_error")
+                if code_error:
+                    st.error(f"Execution Error: {code_error}")
 
 
 def process_query(query: str, api_key: str, model: str):
@@ -268,49 +244,26 @@ if "example_to_process" in st.session_state:
             final_answer = result.get("final_answer", "No response generated.")
             st.markdown(final_answer)
             
-            # Store message with expert info
+            # Store message with info
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": final_answer,
-                "experts": result.get("selected_experts", []),
-                "expert_responses": result.get("expert_responses", {})
+                "generated_code": result.get("generated_code", ""),
+                "code_execution_error": result.get("code_execution_error", ""),
+                "code_execution_iterations": result.get("code_execution_iterations", 1)
             })
             
             # Show agent flow graph
-            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
-                experts_used = result.get("selected_experts", [])
-                expert_responses = result.get("expert_responses", {})
+            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
+                st.code(result.get("generated_code", ""), language="python")
                 
-                if experts_used and expert_responses:
-                    st.markdown("""
-                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
-                                   padding: 1rem; 
-                                   border-radius: 8px; 
-                                   margin-bottom: 1rem;
-                                   border-left: 4px solid #0ea5e9;'>
-                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
-                                📊 This diagram shows the path your query took through the system, 
-                                from initial routing to final synthesis.
-                            </p>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    visualizer = MoEVisualizer()
-                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
-                    st.plotly_chart(flow_graph, use_container_width=True)
-            
-            # Show expert info
-            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
-                experts_used = result.get("selected_experts", [])
-                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                iterations = result.get("code_execution_iterations", 1)
+                if iterations > 1:
+                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
                 
-                expert_responses = result.get("expert_responses", {})
-                if expert_responses:
-                    st.divider()
-                    for expert, response in expert_responses.items():
-                        st.markdown(f"**{expert.capitalize()} Expert:**")
-                        st.markdown(response)
-                        st.divider()
+                code_error = result.get("code_execution_error")
+                if code_error:
+                    st.error(f"Execution Error: {code_error}")
     
     st.rerun()
 
@@ -337,47 +290,24 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
             final_answer = result.get("final_answer", "No response generated.")
             st.markdown(final_answer)
             
-            # Store message with expert info
+            # Store message with info
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": final_answer,
-                "experts": result.get("selected_experts", []),
-                "expert_responses": result.get("expert_responses", {})
+                "generated_code": result.get("generated_code", ""),
+                "code_execution_error": result.get("code_execution_error", ""),
+                "code_execution_iterations": result.get("code_execution_iterations", 1)
             })
             
             # Show agent flow graph
-            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
-                experts_used = result.get("selected_experts", [])
-                expert_responses = result.get("expert_responses", {})
+            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
+                st.code(result.get("generated_code", ""), language="python")
                 
-                if experts_used and expert_responses:
-                    st.markdown("""
-                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
-                                   padding: 1rem; 
-                                   border-radius: 8px; 
-                                   margin-bottom: 1rem;
-                                   border-left: 4px solid #0ea5e9;'>
-                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
-                                📊 This diagram shows the path your query took through the system, 
-                                from initial routing to final synthesis.
-                            </p>
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    visualizer = MoEVisualizer()
-                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
-                    st.plotly_chart(flow_graph, use_container_width=True)
-            
-            # Show expert info
-            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
-                experts_used = result.get("selected_experts", [])
-                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                iterations = result.get("code_execution_iterations", 1)
+                if iterations > 1:
+                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
                 
-                expert_responses = result.get("expert_responses", {})
-                if expert_responses:
-                    st.divider()
-                    for expert, response in expert_responses.items():
-                        st.markdown(f"**{expert.capitalize()} Expert:**")
-                        st.markdown(response)
-                        st.divider()
+                code_error = result.get("code_execution_error")
+                if code_error:
+                    st.error(f"Execution Error: {code_error}")
 
