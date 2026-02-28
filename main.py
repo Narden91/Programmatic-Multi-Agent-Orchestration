@@ -4,9 +4,11 @@ import asyncio
 import argparse
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=False)
 
 
 async def run_query(

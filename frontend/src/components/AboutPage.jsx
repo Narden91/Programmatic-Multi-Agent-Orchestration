@@ -11,6 +11,8 @@ import {
   Users,
   Layers,
   Workflow,
+  Database,
+  Timer,
 } from 'lucide-react'
 
 const container = {
@@ -46,14 +48,27 @@ export default function AboutPage({ onBack }) {
         <motion.div variants={item} className="space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full glass border border-accent-purple/20 text-xs text-accent-purple font-medium">
             <Sparkles size={12} />
-            Architecture Deep-Dive
+            Architecture Deep Dive
           </div>
           <h1 className="text-4xl font-extrabold tracking-tight">
-            <span className="gradient-text">How It Works</span>
+            <span className="gradient-text">What Makes This Different</span>
           </h1>
-          <p className="text-base text-text-secondary max-w-2xl leading-relaxed">
-            A new paradigm for multi-agent AI systems: the orchestrator writes
-            dynamic async Python instead of following a static graph.
+          <p className="text-base text-text-secondary max-w-3xl leading-relaxed">
+            This system shifts orchestration from fixed graph wiring to generated
+            program logic. For each query, the orchestrator writes async Python,
+            executes it in a sandbox, and programmatically coordinates expert
+            agents.
+          </p>
+        </motion.div>
+
+        <motion.div variants={item} className="glass-card p-5">
+          <h2 className="text-sm font-semibold text-text-primary mb-2">
+            Novelty in one sentence
+          </h2>
+          <p className="text-sm text-text-secondary leading-relaxed">
+            The AI no longer chooses from a prebuilt route map; it writes and runs
+            a purpose-built orchestration script that can use loops, conditionals,
+            and parallel `asyncio.gather` calls to solve the query.
           </p>
         </motion.div>
 
@@ -70,7 +85,7 @@ export default function AboutPage({ onBack }) {
         <motion.div variants={item}>
           <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-4 flex items-center gap-2">
             <Layers size={14} className="text-accent-amber" />
-            Step by Step
+            How It Is Achieved
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             {[
@@ -79,35 +94,35 @@ export default function AboutPage({ onBack }) {
                 icon: Brain,
                 color: '#a78bfa',
                 title: 'Orchestrator',
-                desc: 'Analyzes your query and decides the strategy',
+                desc: 'Chooses a strategy and drafts a query-specific orchestration program',
               },
               {
                 n: 2,
                 icon: Code2,
                 color: '#c084fc',
                 title: 'Code Gen',
-                desc: 'Writes a tailored async Python script',
+                desc: 'Generates async Python with tool calls, loops, and conditional routing',
               },
               {
                 n: 3,
                 icon: Shield,
                 color: '#fbbf24',
                 title: 'Sandbox',
-                desc: 'Executes the script in an AST-validated sandbox',
+                desc: 'Validates AST, restricts execution, and enforces runtime limits',
               },
               {
                 n: 4,
                 icon: Users,
                 color: '#2dd4bf',
                 title: 'Experts',
-                desc: 'Specialized micro-agents are invoked programmatically',
+                desc: 'Spawns transient specialist agents via async tool functions',
               },
               {
                 n: 5,
                 icon: Sparkles,
                 color: '#fb923c',
                 title: 'Answer',
-                desc: 'Synthesized result returned with full transparency',
+                desc: 'Returns synthesis, generated code, and execution metadata',
               },
             ].map(({ n, icon: Icon, color, title, desc }) => (
               <div
@@ -136,28 +151,28 @@ export default function AboutPage({ onBack }) {
         <motion.div variants={item}>
           <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
             <Zap size={14} className="text-accent-teal" />
-            Key Capabilities
+            Practical Advantages
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {[
               {
-                label: 'Orchestration',
-                value: 'Dynamic Python',
-                detail: 'Unique script generated for every query',
+                label: 'Adaptive Logic',
+                value: 'Per-query script',
+                detail: 'No one-size-fits-all graph path',
                 icon: Code2,
                 color: '#a78bfa',
               },
               {
-                label: 'Execution',
-                value: 'Sandboxed',
-                detail: 'AST-validated with timeout protection',
+                label: 'Safety',
+                value: 'Sandbox controls',
+                detail: 'AST checks, restricted builtins, timeout enforcement',
                 icon: Shield,
                 color: '#fbbf24',
               },
               {
-                label: 'Experts',
-                value: 'Parallel Async',
-                detail: 'Context-compressed, transient micro-agents',
+                label: 'Context Efficiency',
+                value: 'Compressed traces',
+                detail: 'Intermediate steps stay in runtime variables',
                 icon: Users,
                 color: '#2dd4bf',
               },
@@ -185,7 +200,7 @@ export default function AboutPage({ onBack }) {
         <motion.div variants={item}>
           <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
             <GitBranch size={14} className="text-accent-rose" />
-            Paradigm Comparison
+            Routing Paradigms
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div
@@ -195,16 +210,16 @@ export default function AboutPage({ onBack }) {
               <div className="flex items-center gap-2 mb-4">
                 <GitBranch size={16} className="text-accent-rose" />
                 <h3 className="text-sm font-semibold text-accent-rose">
-                  Traditional DAG Routing
+                  Static Graph Routing
                 </h3>
               </div>
               <ul className="space-y-2.5 text-xs text-text-secondary">
                 {[
-                  'Static, developer-defined graphs',
-                  'Complex state dictionaries bloat context window',
-                  'Same routing for every query type',
-                  'Massive boilerplate DAG routing code',
-                  'Intermediate outputs fill context → hallucinations',
+                  'Developer-maintained edge logic and static node wiring',
+                  'Low flexibility for query-specific control flow',
+                  'Intermediates often accumulate in shared context state',
+                  'High orchestration boilerplate and maintenance overhead',
+                  'Parallel/sequential strategy changes require manual graph edits',
                 ].map((text) => (
                   <li key={text} className="flex items-start gap-2">
                     <span className="text-accent-rose mt-0.5 flex-shrink-0">
@@ -225,11 +240,11 @@ export default function AboutPage({ onBack }) {
               </div>
               <ul className="space-y-2.5 text-xs text-text-secondary">
                 {[
-                  ['AI writes a ', 'unique script per query'],
-                  ['Variables stay in sandbox — ', '80%+ token savings'],
-                  ['Dynamic ', 'parallel/sequential expert calls'],
-                  ['Zero boilerplate — ', 'the AI writes its own graph'],
-                  ['Only final result enters context — ', 'no hallucination loops'],
+                  ['AI generates a ', 'fresh async orchestration script per request'],
+                  ['Tool functions enable ', 'dynamic expert invocation at runtime'],
+                  ['Native Python control flow handles ', 'branching and iteration naturally'],
+                  ['Execution remains inside a ', 'validated and bounded sandbox'],
+                  ['Only the synthesized output and metadata ', 'return to graph state'],
                 ].map(([prefix, bold], i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="text-accent-green mt-0.5 flex-shrink-0">
@@ -251,32 +266,63 @@ export default function AboutPage({ onBack }) {
           <div className="glass-card p-6 gradient-border border-transparent">
             <h2 className="text-sm font-semibold text-accent-purple mb-3 flex items-center gap-2">
               <Sparkles size={14} />
-              Research Angle
+              Research and Measurement
             </h2>
             <div className="space-y-3 text-xs text-text-secondary leading-relaxed">
               <p>
-                <strong className="text-text-primary">
-                  Code-as-Orchestration vs Graph-as-Orchestration:
-                </strong>{' '}
-                Benchmarking how an LLM writing ephemeral async Python compares
-                to standard graph-based routing (LangGraph/AutoGen).
+                <strong className="text-text-primary">Benchmark axis 1:</strong>{' '}
+                generated-code orchestration versus fixed graph routing on quality,
+                flexibility, and implementation overhead.
               </p>
               <p>
-                <strong className="text-text-primary">
-                  Solving the Context Window Problem:
-                </strong>{' '}
-                Keeping intermediate agent dialogue inside sandbox variables instead
-                of LLM context windows saves 80%+ on token costs and eliminates
-                hallucination loops.
+                <strong className="text-text-primary">Benchmark axis 2:</strong>{' '}
+                context growth and token usage when intermediate deliberation is kept
+                inside sandbox variables instead of the chat transcript.
               </p>
               <p>
-                <strong className="text-text-primary">
-                  Developer Fatigue:
-                </strong>{' '}
-                No more massive boilerplate DAG routing code. The AI writes its own
-                LangGraph on the fly.
+                <strong className="text-text-primary">Benchmark axis 3:</strong>{' '}
+                developer effort reduction by replacing manual DAG boilerplate with
+                model-authored orchestration code.
               </p>
             </div>
+          </div>
+        </motion.div>
+
+        <motion.div variants={item}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              {
+                icon: Database,
+                title: 'Context Compression',
+                desc: 'Intermediate reasoning remains in runtime variables, not full transcript memory.',
+                color: 'text-accent-blue',
+                bg: 'bg-accent-blue/10',
+              },
+              {
+                icon: Timer,
+                title: 'Execution Guardrails',
+                desc: 'AST checks and bounded runtime enforce predictable, safer code execution.',
+                color: 'text-accent-amber',
+                bg: 'bg-accent-amber/10',
+              },
+              {
+                icon: Users,
+                title: 'Transient Experts',
+                desc: 'Specialist agents are spawned on demand and discarded after response synthesis.',
+                color: 'text-accent-teal',
+                bg: 'bg-accent-teal/10',
+              },
+            ].map(({ icon: Icon, title, desc, color, bg }) => (
+              <div key={title} className="glass-card p-4">
+                <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-2.5`}>
+                  <Icon size={14} className={color} />
+                </div>
+                <p className="text-sm font-semibold text-text-primary mb-1.5">
+                  {title}
+                </p>
+                <p className="text-xs text-text-secondary leading-relaxed">{desc}</p>
+              </div>
+            ))}
           </div>
         </motion.div>
 

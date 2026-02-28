@@ -29,7 +29,7 @@ export default function Layout({
       {/* Backdrop for mobile */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-30 bg-slate-900/25 lg:hidden"
           onClick={onToggleSidebar}
         />
       )}

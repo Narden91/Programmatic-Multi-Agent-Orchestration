@@ -27,7 +27,7 @@ export default function Markdown({ children }) {
           }
           return (
             <code
-              className="px-1.5 py-0.5 rounded-md bg-white/5 border border-white/8 text-accent-purple text-[0.85em] font-mono"
+              className="px-1.5 py-0.5 rounded-md bg-accent-purple/10 border border-accent-purple/20 text-accent-purple text-[0.85em] font-mono"
               {...props}
             >
               {children}

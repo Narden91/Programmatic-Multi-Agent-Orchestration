@@ -1,9 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Dict
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=False)
 
 
 # ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
   BookOpen,
   Home,
   X,
+  Shield,
 } from 'lucide-react'
 
 const EXPERT_INFO = [
@@ -58,7 +59,7 @@ export default function Sidebar({
   const [showKey, setShowKey] = useState(false)
 
   return (
-    <aside className="w-72 h-full bg-bg-surface border-r border-border flex flex-col">
+    <aside className="w-72 h-full bg-bg-surface/95 backdrop-blur-md border-r border-border flex flex-col">
       {/* Header */}
       <div className="p-5 border-b border-border">
         <div className="flex items-center justify-between">
@@ -70,7 +71,9 @@ export default function Sidebar({
               <h1 className="text-sm font-bold text-text-primary tracking-tight">
                 Programmatic MoE
               </h1>
-              <p className="text-[10px] text-text-muted font-mono">v0.5.0</p>
+              <p className="text-[10px] text-text-muted font-mono">
+                Code-as-Orchestration · v0.5.0
+              </p>
             </div>
           </div>
           <button
@@ -165,6 +168,24 @@ export default function Sidebar({
           </div>
         </section>
 
+        <section>
+          <label className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
+            <Shield size={12} />
+            Why this is novel
+          </label>
+          <div className="rounded-xl border border-accent-purple/25 bg-accent-purple/5 p-3 space-y-2">
+            <p className="text-[11px] text-text-secondary leading-relaxed">
+              The orchestrator writes a fresh async Python plan for each query,
+              instead of routing through a fixed DAG.
+            </p>
+            <ul className="space-y-1 text-[10px] text-text-secondary">
+              <li>• Dynamic tool calling with transient expert functions</li>
+              <li>• AST-validated sandbox execution with timeout controls</li>
+              <li>• Intermediate reasoning stays in sandbox variables</li>
+            </ul>
+          </div>
+        </section>
+
         {/* Session Stats */}
         {stats.queriesProcessed > 0 && (
           <section>
@@ -205,7 +226,7 @@ export default function Sidebar({
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
               currentPage === 'chat'
                 ? 'bg-accent-purple/15 text-accent-purple border border-accent-purple/30'
-                : 'text-text-secondary hover:text-text-primary hover:bg-bg/40'
+                : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/70'
             }`}
           >
             <Home size={13} />
@@ -216,7 +237,7 @@ export default function Sidebar({
             className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
               currentPage === 'about'
                 ? 'bg-accent-purple/15 text-accent-purple border border-accent-purple/30'
-                : 'text-text-secondary hover:text-text-primary hover:bg-bg/40'
+                : 'text-text-secondary hover:text-text-primary hover:bg-bg-hover/70'
             }`}
           >
             <BookOpen size={13} />
@@ -229,7 +250,7 @@ export default function Sidebar({
       <div className="p-4 border-t border-border">
         <button
           onClick={onClear}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg/60 border border-border text-xs text-text-secondary hover:text-accent-rose hover:border-accent-rose/30 transition-all"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-bg-hover/70 border border-border text-xs text-text-secondary hover:text-accent-rose hover:border-accent-rose/30 transition-all"
         >
           <Trash2 size={12} />
           Clear Chat

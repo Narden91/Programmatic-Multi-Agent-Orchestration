@@ -73,7 +73,7 @@ export default function PromptCards({ onSelect }) {
             whileHover={{ scale: 1.02, y: -2 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => onSelect(prompt.text)}
-            className="glass-card p-4 text-left group hover:border-white/10 transition-all duration-300 cursor-pointer"
+            className="glass-card p-4 text-left group hover:border-accent-purple/30 transition-all duration-300 cursor-pointer"
           >
             <div className="flex items-start gap-3">
               <div
@@ -83,7 +83,7 @@ export default function PromptCards({ onSelect }) {
                 <prompt.icon size={15} style={{ color: prompt.color }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-text-primary leading-relaxed group-hover:text-white transition-colors">
+                <p className="text-xs text-text-primary leading-relaxed group-hover:text-text-primary transition-colors">
                   {prompt.text}
                 </p>
                 <div className="flex items-center gap-2 mt-2">

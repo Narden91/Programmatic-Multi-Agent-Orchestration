@@ -33,8 +33,9 @@ async def health():
 
 @router.get("/config", response_model=ConfigResponse)
 async def get_config():
+    has_env_key = bool(os.getenv("GROQ_API_KEY", "").strip())
     return ConfigResponse(
-        has_env_api_key=bool(os.getenv("GROQ_API_KEY")),
+        has_env_api_key=has_env_key,
         version="0.5.0",
     )
 
@@ -47,8 +48,9 @@ async def get_models():
 @router.get("/init")
 async def get_init():
     """Combined config+models endpoint — one request instead of two."""
+    has_env_key = bool(os.getenv("GROQ_API_KEY", "").strip())
     return {
-        "has_env_api_key": bool(os.getenv("GROQ_API_KEY")),
+        "has_env_api_key": has_env_key,
         "version": "0.5.0",
         "models": AVAILABLE_MODELS,
     }
@@ -56,7 +58,7 @@ async def get_init():
 
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
-    api_key = req.api_key or os.getenv("GROQ_API_KEY", "")
+    api_key = (req.api_key or os.getenv("GROQ_API_KEY", "")).strip()
     if not api_key:
         raise HTTPException(
             status_code=400,

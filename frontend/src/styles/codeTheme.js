@@ -2,21 +2,21 @@
  * Shared syntax-highlighter style used by Markdown.jsx and CodePanel.jsx.
  * Single source of truth — avoids duplicating the oneDark override.
  */
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 
 const codeTheme = {
-  ...oneDark,
+  ...oneLight,
   'pre[class*="language-"]': {
-    ...oneDark['pre[class*="language-"]'],
-    background: 'rgba(6, 8, 15, 0.8)',
+    ...oneLight['pre[class*="language-"]'],
+    background: 'rgba(244, 247, 255, 0.9)',
     borderRadius: '12px',
-    border: '1px solid rgba(255, 255, 255, 0.06)',
+    border: '1px solid rgba(199, 212, 233, 0.7)',
     fontSize: '12px',
     lineHeight: '1.7',
     margin: 0,
   },
   'code[class*="language-"]': {
-    ...oneDark['code[class*="language-"]'],
+    ...oneLight['code[class*="language-"]'],
     fontSize: '12px',
     fontFamily: '"JetBrains Mono", "Fira Code", monospace',
   },

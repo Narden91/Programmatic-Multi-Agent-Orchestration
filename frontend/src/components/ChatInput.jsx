@@ -28,7 +28,7 @@ export default function ChatInput({ onSend, isLoading, disabled, placeholder }) 
             onChange={(e) => setInput(e.target.value)}
             placeholder={placeholder}
             disabled={isLoading || disabled}
-            className="w-full bg-bg border border-border rounded-xl px-4 py-3 pr-12 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-purple/50 focus:ring-1 focus:ring-accent-purple/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-bg-surface border border-border rounded-xl px-4 py-3 pr-12 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-accent-purple/50 focus:ring-1 focus:ring-accent-purple/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <motion.button
             type="submit"
@@ -45,8 +45,8 @@ export default function ChatInput({ onSend, isLoading, disabled, placeholder }) 
           </motion.button>
         </div>
         <p className="text-[10px] text-text-muted text-center mt-2">
-          Powered by Groq LPU™ inference · Code executed in sandboxed
-          environment
+          Programmatic orchestration: generated async Python + sandbox execution
+          + transient experts
         </p>
       </form>
     </div>
