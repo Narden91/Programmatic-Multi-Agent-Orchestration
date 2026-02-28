@@ -72,6 +72,49 @@ export default function AboutPage({ onBack }) {
           </p>
         </motion.div>
 
+        <motion.div variants={item}>
+          <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Sparkles size={14} className="text-accent-purple" />
+            Core Differentiators
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {[
+              {
+                title: 'Dynamic Tool Calling',
+                desc: 'The orchestrator writes a fresh async Python plan per query and invokes transient expert functions at runtime.',
+                color: 'text-accent-purple',
+                bg: 'bg-accent-purple/10',
+              },
+              {
+                title: 'Validated Sandbox Execution',
+                desc: 'Generated code is AST-validated and executed with restricted builtins and explicit timeout controls.',
+                color: 'text-accent-amber',
+                bg: 'bg-accent-amber/10',
+              },
+              {
+                title: 'Context-Efficient Reasoning',
+                desc: 'Intermediate reasoning stays in sandbox variables instead of bloating the shared chat transcript.',
+                color: 'text-accent-teal',
+                bg: 'bg-accent-teal/10',
+              },
+            ].map(({ title, desc, color, bg }) => (
+              <div key={title} className="glass-card p-4">
+                <div
+                  className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-2.5`}
+                >
+                  <Sparkles size={14} className={color} />
+                </div>
+                <p className="text-sm font-semibold text-text-primary mb-1.5">
+                  {title}
+                </p>
+                <p className="text-xs text-text-secondary leading-relaxed">
+                  {desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
         {/* Pipeline */}
         <motion.div variants={item}>
           <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider mb-3 flex items-center gap-2">

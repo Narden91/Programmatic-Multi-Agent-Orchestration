@@ -37,7 +37,7 @@ export default function CodePanel({ code, error, iterations }) {
         </div>
         <button
           onClick={handleCopy}
-          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-text-muted hover:text-text-primary hover:bg-white/5 transition-all"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-text-muted hover:text-text-primary hover:bg-bg-hover/70 transition-all"
         >
           {copied ? (
             <Check size={11} className="text-accent-green" />

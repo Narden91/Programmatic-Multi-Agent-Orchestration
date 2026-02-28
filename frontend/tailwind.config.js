@@ -8,8 +8,8 @@ export default {
       colors: {
         bg: {
           DEFAULT: '#f5f7fc',
-          surface: '#ffffff',
-          card: '#f9f5ff',
+          surface: '#f1f4ff',
+          card: '#f4efff',
           hover: '#eef2fb',
         },
         border: {

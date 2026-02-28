@@ -14,7 +14,6 @@ import {
   BookOpen,
   Home,
   X,
-  Shield,
 } from 'lucide-react'
 
 const EXPERT_INFO = [
@@ -165,24 +164,6 @@ export default function Sidebar({
                 </div>
               </div>
             ))}
-          </div>
-        </section>
-
-        <section>
-          <label className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">
-            <Shield size={12} />
-            Why this is novel
-          </label>
-          <div className="rounded-xl border border-accent-purple/25 bg-accent-purple/5 p-3 space-y-2">
-            <p className="text-[11px] text-text-secondary leading-relaxed">
-              The orchestrator writes a fresh async Python plan for each query,
-              instead of routing through a fixed DAG.
-            </p>
-            <ul className="space-y-1 text-[10px] text-text-secondary">
-              <li>• Dynamic tool calling with transient expert functions</li>
-              <li>• AST-validated sandbox execution with timeout controls</li>
-              <li>• Intermediate reasoning stays in sandbox variables</li>
-            </ul>
           </div>
         </section>
 
