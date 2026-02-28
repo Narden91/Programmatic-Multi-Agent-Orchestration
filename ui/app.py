@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core.config import MoEConfig, SecretStr
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
+from ui.components.visualization import MoEVisualizer
 
 load_dotenv()
 
@@ -24,6 +25,20 @@ st.set_page_config(
 
 st.title("🧠 Mixture of Experts")
 st.caption("Intelligent query routing with specialized AI experts")
+
+with st.expander("🚀 Why this is different", expanded=True):
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.metric("Orchestration", "Dynamic Python", "per query")
+    with col_b:
+        st.metric("Execution", "Sandboxed", "AST + timeout")
+    with col_c:
+        st.metric("Experts", "Parallel async", "context-compressed")
+    st.markdown(
+        "This system does **Code-as-Orchestration**: instead of following a fixed DAG, "
+        "the orchestrator writes an async script tailored to your request, executes it in "
+        "a hardened sandbox, and returns a synthesized result with transparent execution metadata."
+    )
 
 
 with st.sidebar:
@@ -93,17 +108,76 @@ if "messages" not in st.session_state:
     ]
 
 
+def render_result_panels(payload: dict, key_prefix: str = ""):
+    """Render rich orchestration insights for one assistant response."""
+    generated_code = payload.get("generated_code", "")
+    selected_experts = payload.get("selected_experts", [])
+    expert_responses = payload.get("expert_responses", {})
+    token_usage = payload.get("token_usage", {})
+    iterations = payload.get("code_execution_iterations", 1)
+    code_error = payload.get("code_execution_error", "")
+
+    total_tokens = token_usage.get("total_tokens", 0)
+    estimated_cost = token_usage.get("estimated_cost_usd", 0.0)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Experts Used", len(selected_experts))
+    m2.metric("Iterations", iterations)
+    m3.metric("Total Tokens", f"{total_tokens:,}")
+    m4.metric("Est. Cost", f"${estimated_cost:.4f}")
+
+    tab_code, tab_flow, tab_plan, tab_tokens, tab_experts = st.tabs(
+        ["💻 Code", "🕸️ Agent Flow", "🧩 Execution Plan", "📊 Tokens", "🤖 Expert Outputs"]
+    )
+
+    with tab_code:
+        st.code(generated_code or "# No code generated", language="python")
+        if iterations > 1:
+            st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
+        if code_error:
+            st.error(f"Execution Error: {code_error}")
+
+    with tab_flow:
+        if selected_experts:
+            flow_fig = MoEVisualizer.create_network_graph(
+                selected_experts=selected_experts,
+                expert_responses=expert_responses,
+                generated_code=generated_code,
+            )
+            st.plotly_chart(flow_fig, use_container_width=True, key=f"{key_prefix}_flow")
+        else:
+            st.info("No expert routing data available for this response.")
+
+    with tab_plan:
+        if generated_code:
+            plan_fig = MoEVisualizer.create_execution_plan_graph(
+                code=generated_code,
+                actual_experts=selected_experts,
+            )
+            st.plotly_chart(plan_fig, use_container_width=True, key=f"{key_prefix}_plan")
+        else:
+            st.info("No execution plan available.")
+
+    with tab_tokens:
+        if token_usage:
+            token_fig = MoEVisualizer.create_token_usage_chart(token_usage)
+            st.plotly_chart(token_fig, use_container_width=True, key=f"{key_prefix}_tokens")
+            st.json(token_usage)
+        else:
+            st.info("Token usage metadata is not available for this response.")
+
+    with tab_experts:
+        if expert_responses:
+            for expert, response in expert_responses.items():
+                with st.expander(f"{expert.title()} Expert", expanded=False):
+                    st.markdown(response)
+        else:
+            st.info("No expert outputs were captured.")
+
+
 if len(st.session_state.messages) <= 1:
-    st.markdown("""
-        <div style='text-align: center; margin: 2rem 0 1.5rem 0;'>
-            <h3 style='color: #1f2937; font-weight: 600; margin-bottom: 0.5rem;'>
-                💡 Try these example queries
-            </h3>
-            <p style='color: #6b7280; font-size: 0.95rem;'>
-                Click any question to see how the MoE system routes and processes it
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.subheader("💡 Try these showcase prompts")
+    st.caption("Use these to see dynamic code generation, expert routing, and execution analytics.")
     
     example_queries = [
         {
@@ -144,27 +218,22 @@ if len(st.session_state.messages) <= 1:
         }
     ]
     
-    st.markdown("""
+    st.markdown(
+        """
         <style>
         div.stButton > button {
-            background: white;
-            border: 2px solid #e5e7eb;
             border-radius: 12px;
-            padding: 1rem 1.5rem;
+            padding: 0.8rem 1rem;
             text-align: left;
-            transition: all 0.3s ease;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             height: auto;
             white-space: normal;
-            line-height: 1.5;
-        }
-        div.stButton > button:hover {
-            border-color: #667eea;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
-            transform: translateY(-2px);
+            line-height: 1.4;
+            border: 1px solid #e5e7eb;
         }
         </style>
-    """, unsafe_allow_html=True)
+        """,
+        unsafe_allow_html=True,
+    )
     
     cols = st.columns(2)
     for idx, example in enumerate(example_queries):
@@ -185,16 +254,8 @@ for msg in st.session_state.messages:
         st.markdown(msg["content"])
         
         if msg["role"] == "assistant" and "generated_code" in msg:
-            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
-                st.code(msg.get("generated_code", ""), language="python")
-                
-                iterations = msg.get("code_execution_iterations", 1)
-                if iterations > 1:
-                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
-                
-                code_error = msg.get("code_execution_error")
-                if code_error:
-                    st.error(f"Execution Error: {code_error}")
+            with st.expander("🔬 Orchestration Insights", expanded=False):
+                render_result_panels(msg, key_prefix=f"history_{abs(hash(msg.get('content', '')))}")
 
 
 def process_query(query: str, api_key: str, model: str):
@@ -285,20 +346,15 @@ if "example_to_process" in st.session_state:
                 "content": final_answer,
                 "generated_code": result.get("generated_code", ""),
                 "code_execution_error": result.get("code_execution_error", ""),
-                "code_execution_iterations": result.get("code_execution_iterations", 1)
+                "code_execution_iterations": result.get("code_execution_iterations", 1),
+                "selected_experts": result.get("selected_experts", []),
+                "expert_responses": result.get("expert_responses", {}),
+                "execution_plan": result.get("execution_plan", {}),
+                "token_usage": result.get("token_usage", {}),
             })
             
-            # Show agent flow graph
-            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
-                st.code(result.get("generated_code", ""), language="python")
-                
-                iterations = result.get("code_execution_iterations", 1)
-                if iterations > 1:
-                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
-                
-                code_error = result.get("code_execution_error")
-                if code_error:
-                    st.error(f"Execution Error: {code_error}")
+            with st.expander("🔬 Orchestration Insights", expanded=True):
+                render_result_panels(result, key_prefix="example_current")
     
     if result:
         st.rerun()
@@ -332,18 +388,16 @@ if prompt := st.chat_input(placeholder="Ask me anything..."):
                 "content": final_answer,
                 "generated_code": result.get("generated_code", ""),
                 "code_execution_error": result.get("code_execution_error", ""),
-                "code_execution_iterations": result.get("code_execution_iterations", 1)
+                "code_execution_iterations": result.get("code_execution_iterations", 1),
+                "selected_experts": result.get("selected_experts", []),
+                "expert_responses": result.get("expert_responses", {}),
+                "execution_plan": result.get("execution_plan", {}),
+                "token_usage": result.get("token_usage", {}),
             })
             
-            # Show agent flow graph
-            with st.expander("💻 **Orchestration Script** - See the dynamically generated multi-agent code", expanded=False):
-                st.code(result.get("generated_code", ""), language="python")
-                
-                iterations = result.get("code_execution_iterations", 1)
-                if iterations > 1:
-                    st.warning(f"Script took {iterations} iterations to execute successfully (auto-retried).")
-                
-                code_error = result.get("code_execution_error")
-                if code_error:
-                    st.error(f"Execution Error: {code_error}")
+            with st.expander("🔬 Orchestration Insights", expanded=True):
+                render_result_panels(result, key_prefix="chat_current")
+
+    if result:
+        st.rerun()
 
