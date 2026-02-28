@@ -1,0 +1,383 @@
+import streamlit as st
+import sys
+from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from src.core.config import MoEConfig
+from src.core.state import create_initial_state
+from src.graph.builder import MoEGraphBuilder
+from ui.components.visualization import MoEVisualizer
+
+load_dotenv()
+
+
+st.set_page_config(
+    page_title="Mixture of Experts",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+st.title("🧠 Mixture of Experts")
+st.caption("Intelligent query routing with specialized AI experts")
+
+
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    
+    env_api_key = os.getenv("GROQ_API_KEY", "")
+    groq_api_key = st.text_input(
+        "Groq API Key",
+        value=env_api_key,
+        type="password",
+        help="Get your API key at https://console.groq.com"
+    )
+    
+    if not groq_api_key:
+        st.warning("Please add your Groq API key to continue.")
+    
+    st.divider()
+    
+    st.subheader("🤖 Model")
+    available_models = [
+        "meta-llama/llama-4-maverick-17b-128e-instruct",
+        "llama-3.3-70b-versatile",
+        "qwen/qwen3-32b",
+        "moonshotai/kimi-k2-instruct-0905"
+    ]
+    
+    selected_model = st.selectbox(
+        "Choose AI Model",
+        available_models,
+        help="Select the Groq model for all agents"
+    )
+    
+    st.divider()
+    
+    st.subheader("🤖 Available Experts")
+    st.markdown("""
+    - 🔧 **Technical**: Code, tech, science
+    - 🎨 **Creative**: Stories, ideas, content
+    - 📊 **Analytical**: Data, logic, analysis
+    - 💬 **General**: Conversations, facts
+    """)
+    
+    st.divider()
+    
+    with st.expander("ℹ️ How It Works"):
+        st.markdown("""
+        1. **Router** analyzes your query
+        2. **Selects** relevant expert(s)
+        3. **Experts** process in parallel
+        4. **Synthesizer** combines responses
+        5. **Final** answer delivered
+        """)
+    
+    st.divider()
+    
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+
+
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {
+            "role": "assistant",
+            "content": "Hello! I'm your Mixture of Experts AI assistant. Ask me anything, and I'll route your question to the most suitable expert(s) for the best answer."
+        }
+    ]
+
+
+if len(st.session_state.messages) <= 1:
+    st.markdown("""
+        <div style='text-align: center; margin: 2rem 0 1.5rem 0;'>
+            <h3 style='color: #1f2937; font-weight: 600; margin-bottom: 0.5rem;'>
+                💡 Try these example queries
+            </h3>
+            <p style='color: #6b7280; font-size: 0.95rem;'>
+                Click any question to see how the MoE system routes and processes it
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    example_queries = [
+        {
+            "icon": "🔧",
+            "text": "Explain quantum computing in simple terms",
+            "category": "technical",
+            "color": "#fef2f2"
+        },
+        {
+            "icon": "🎨",
+            "text": "Write a short story about AI discovering emotions",
+            "category": "creative",
+            "color": "#f0fdf4"
+        },
+        {
+            "icon": "📊",
+            "text": "Compare the pros and cons of remote work",
+            "category": "analytical",
+            "color": "#eff6ff"
+        },
+        {
+            "icon": "🔧",
+            "text": "How do I build a REST API with FastAPI?",
+            "category": "technical",
+            "color": "#fef2f2"
+        },
+        {
+            "icon": "💬",
+            "text": "What are the main causes of climate change?",
+            "category": "general",
+            "color": "#faf5ff"
+        },
+        {
+            "icon": "🎨",
+            "text": "Generate creative marketing slogans for eco-friendly products",
+            "category": "creative",
+            "color": "#f0fdf4"
+        }
+    ]
+    
+    st.markdown("""
+        <style>
+        div.stButton > button {
+            background: white;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 1rem 1.5rem;
+            text-align: left;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            height: auto;
+            white-space: normal;
+            line-height: 1.5;
+        }
+        div.stButton > button:hover {
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+            transform: translateY(-2px);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    cols = st.columns(2)
+    for idx, example in enumerate(example_queries):
+        with cols[idx % 2]:
+            if st.button(
+                example['text'], 
+                key=f"example_{idx}",
+                use_container_width=True
+            ):
+                st.session_state.example_to_process = example['text']
+                st.rerun()
+    
+    st.divider()
+
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        
+        if msg["role"] == "assistant" and "experts" in msg:
+            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
+                experts_used = msg.get("experts", [])
+                expert_responses = msg.get("expert_responses", {})
+                
+                if experts_used and expert_responses:
+                    st.markdown("""
+                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
+                                   padding: 1rem; 
+                                   border-radius: 8px; 
+                                   margin-bottom: 1rem;
+                                   border-left: 4px solid #0ea5e9;'>
+                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
+                                📊 This diagram shows the path your query took through the system, 
+                                from initial routing to final synthesis.
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    visualizer = MoEVisualizer()
+                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
+                    st.plotly_chart(flow_graph, use_container_width=True)
+            
+            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
+                experts_used = msg.get("experts", [])
+                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                
+                expert_responses = msg.get("expert_responses", {})
+                if expert_responses and isinstance(expert_responses, dict):
+                    st.divider()
+                    for expert, response in expert_responses.items():
+                        st.markdown(f"**{expert.capitalize()} Expert:**")
+                        st.markdown(response)
+                        st.divider()
+
+
+def process_query(query: str, api_key: str, model: str):
+    """Process a query through the MoE system"""
+    try:
+        config = MoEConfig(groq_api_key=api_key)
+        
+        config.router_config.model_name = model
+        config.synthesizer_config.model_name = model
+        for expert_config in config.expert_configs.values():
+            expert_config.llm_config.model_name = model
+        
+        config.validate()
+        
+        builder = MoEGraphBuilder(config)
+        graph = builder.build()
+        
+        initial_state = create_initial_state(query)
+        result = graph.invoke(initial_state)
+        
+        return result
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        return None
+
+
+if "example_to_process" in st.session_state:
+    prompt = st.session_state.example_to_process
+    del st.session_state.example_to_process
+    
+    if not groq_api_key:
+        st.error("Please add your Groq API key in the sidebar to continue.")
+        st.stop()
+    
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # Process and display assistant response
+    with st.chat_message("assistant"):
+        with st.spinner("Processing your query..."):
+            result = process_query(prompt, groq_api_key, selected_model)
+        
+        if result:
+            # Display final answer
+            final_answer = result.get("final_answer", "No response generated.")
+            st.markdown(final_answer)
+            
+            # Store message with expert info
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_answer,
+                "experts": result.get("selected_experts", []),
+                "expert_responses": result.get("expert_responses", {})
+            })
+            
+            # Show agent flow graph
+            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
+                experts_used = result.get("selected_experts", [])
+                expert_responses = result.get("expert_responses", {})
+                
+                if experts_used and expert_responses:
+                    st.markdown("""
+                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
+                                   padding: 1rem; 
+                                   border-radius: 8px; 
+                                   margin-bottom: 1rem;
+                                   border-left: 4px solid #0ea5e9;'>
+                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
+                                📊 This diagram shows the path your query took through the system, 
+                                from initial routing to final synthesis.
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    visualizer = MoEVisualizer()
+                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
+                    st.plotly_chart(flow_graph, use_container_width=True)
+            
+            # Show expert info
+            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
+                experts_used = result.get("selected_experts", [])
+                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                
+                expert_responses = result.get("expert_responses", {})
+                if expert_responses:
+                    st.divider()
+                    for expert, response in expert_responses.items():
+                        st.markdown(f"**{expert.capitalize()} Expert:**")
+                        st.markdown(response)
+                        st.divider()
+    
+    st.rerun()
+
+# Regular chat input
+if prompt := st.chat_input(placeholder="Ask me anything..."):
+    if not groq_api_key:
+        st.error("Please add your Groq API key in the sidebar to continue.")
+        st.stop()
+    
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Display user message
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    
+    # Process and display assistant response
+    with st.chat_message("assistant"):
+        with st.spinner("Processing your query..."):
+            result = process_query(prompt, groq_api_key, selected_model)
+        
+        if result:
+            # Display final answer
+            final_answer = result.get("final_answer", "No response generated.")
+            st.markdown(final_answer)
+            
+            # Store message with expert info
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": final_answer,
+                "experts": result.get("selected_experts", []),
+                "expert_responses": result.get("expert_responses", {})
+            })
+            
+            # Show agent flow graph
+            with st.expander("🔄 **Agent Flow Visualization** - See how your query was processed", expanded=False):
+                experts_used = result.get("selected_experts", [])
+                expert_responses = result.get("expert_responses", {})
+                
+                if experts_used and expert_responses:
+                    st.markdown("""
+                        <div style='background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); 
+                                   padding: 1rem; 
+                                   border-radius: 8px; 
+                                   margin-bottom: 1rem;
+                                   border-left: 4px solid #0ea5e9;'>
+                            <p style='margin: 0; color: #0c4a6e; font-size: 0.9rem;'>
+                                📊 This diagram shows the path your query took through the system, 
+                                from initial routing to final synthesis.
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    visualizer = MoEVisualizer()
+                    flow_graph = visualizer.create_network_graph(experts_used, expert_responses)
+                    st.plotly_chart(flow_graph, use_container_width=True)
+            
+            # Show expert info
+            with st.expander("🔍 **Expert Responses** - Deep dive into each expert's analysis"):
+                experts_used = result.get("selected_experts", [])
+                st.markdown(f"**Selected Experts:** {', '.join([e.capitalize() for e in experts_used])}")
+                
+                expert_responses = result.get("expert_responses", {})
+                if expert_responses:
+                    st.divider()
+                    for expert, response in expert_responses.items():
+                        st.markdown(f"**{expert.capitalize()} Expert:**")
+                        st.markdown(response)
+                        st.divider()
+
