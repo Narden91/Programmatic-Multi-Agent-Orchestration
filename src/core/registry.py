@@ -7,6 +7,9 @@ import os
 
 try:
     from sentence_transformers import SentenceTransformer
+    import logging
+    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
 except ImportError:
     SentenceTransformer = None
 
@@ -20,7 +23,10 @@ class OrchestrationRegistry:
     def __init__(self, db_path: str = ".moe_registry.db", model_name: str = "all-MiniLM-L6-v2"):
         self.db_path = Path(db_path)
         self._init_db()
-        self.model = SentenceTransformer(model_name) if SentenceTransformer else None
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.model = SentenceTransformer(model_name) if SentenceTransformer else None
         
     def _init_db(self):
         """Initialize the SQLite database schema for the registry."""

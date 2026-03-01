@@ -150,7 +150,14 @@ export default function FlowGraph({ experts = [], code }) {
         className="mx-auto"
       >
         <defs>
-          <linearGradient id="edgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient
+            id="edgeGrad"
+            x1="0"
+            y1="0"
+            x2={width}
+            y2="0"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop offset="0%" stopColor="#a78bfa" stopOpacity="0.5" />
             <stop offset="100%" stopColor="#2dd4bf" stopOpacity="0.5" />
           </linearGradient>

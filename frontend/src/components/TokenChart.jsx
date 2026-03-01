@@ -53,18 +53,26 @@ export default function TokenChart({ tokenUsage }) {
   const totalTokens = tokenUsage.total_tokens || 0
   const cost = tokenUsage.estimated_cost_usd || 0
 
-  const barData = Object.entries(byAgent).map(([name, data]) => ({
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    input: data.input,
-    output: data.output,
-    fill: COLORS[name] || '#8b949e',
-  }))
+  const normalizeName = (n) => n.replace(/^(agent_|expert_)/i, '').toLowerCase()
 
-  const pieData = Object.entries(byAgent).map(([name, data]) => ({
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    value: data.input + data.output,
-    fill: COLORS[name] || '#8b949e',
-  }))
+  const barData = Object.entries(byAgent).map(([name, data]) => {
+    const rawName = normalizeName(name)
+    return {
+      name: rawName.charAt(0).toUpperCase() + rawName.slice(1),
+      input: data.input,
+      output: data.output,
+      fill: COLORS[rawName] || '#8b949e',
+    }
+  })
+
+  const pieData = Object.entries(byAgent).map(([name, data]) => {
+    const rawName = normalizeName(name)
+    return {
+      name: rawName.charAt(0).toUpperCase() + rawName.slice(1),
+      value: data.input + data.output,
+      fill: COLORS[rawName] || '#8b949e',
+    }
+  })
 
   return (
     <div className="space-y-4">

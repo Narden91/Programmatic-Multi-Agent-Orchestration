@@ -6,6 +6,9 @@ try:
     import lancedb
     import pyarrow as pa
     from sentence_transformers import SentenceTransformer
+    import logging
+    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+    logging.getLogger("transformers").setLevel(logging.ERROR)
 except ImportError:
     lancedb = None
     pa = None
@@ -20,7 +23,10 @@ class EphemeralMemory:
     
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.model = SentenceTransformer(model_name) if SentenceTransformer else None
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.model = SentenceTransformer(model_name) if SentenceTransformer else None
         
         if lancedb:
             self.db = lancedb.connect(self.temp_dir.name)
