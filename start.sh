@@ -11,6 +11,15 @@ FRONTEND_PID=""
 CLEANUP_DONE=0
 SETUP_MODE=0
 
+# OS protection: Do not allow this script to run natively in MSYS/MinGW Windows.
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+  echo "[moe] ERROR: You are running this script in a Windows shell ($OSTYPE)."
+  echo "      This project relies on native Linux dependencies (e.g., Rollup for Linux)."
+  echo "      Please run '.\start.ps1' from PowerShell to automatically proxy this command to WSL,"
+  echo "      OR open a WSL Ubuntu terminal and run 'bash start.sh' directly."
+  exit 1
+fi
+
 for arg in "$@"; do
   case "$arg" in
     --setup)
@@ -96,6 +105,14 @@ else
   if [ ! -d "frontend/node_modules" ]; then
     log "frontend/node_modules not found. Run: bash start.sh --setup"
     exit 1
+  fi
+
+  if [ ! -d "frontend/node_modules/@rollup/rollup-linux-x64-gnu" ] && [ "$(uname -s)" = "Linux" ]; then
+    log "Error: Native Linux rollup module missing, but running in Linux/WSL."
+    log "This happens if you previously ran 'npm install' in Windows."
+    log "Automatically forcing a clean reinstall for your Linux environment..."
+    rm -rf frontend/node_modules frontend/package-lock.json
+    SETUP_MODE=1
   fi
 fi
 

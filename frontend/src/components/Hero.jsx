@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import PromptCards from './PromptCards'
-import { Sparkles, ArrowRight, Code2, Shield, Workflow } from 'lucide-react'
+import { Sparkles, ArrowRight } from 'lucide-react'
 
 const container = {
   hidden: { opacity: 0 },
@@ -17,71 +17,34 @@ export default function Hero({ onSelectPrompt, onLearnMore }) {
       variants={container}
       initial="hidden"
       animate="show"
-      className="max-w-5xl mx-auto px-6 pt-16 pb-12 space-y-10"
+      className="max-w-4xl mx-auto px-6 pt-24 pb-12 space-y-12"
     >
       {/* Title */}
-      <motion.div variants={item} className="text-center space-y-4">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-accent-purple/25 bg-accent-purple/10 text-xs font-medium text-accent-purple">
-          <Sparkles size={12} />
+      <motion.div variants={item} className="text-center space-y-6">
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-bg-surface text-xs font-semibold text-text-secondary shadow-sm">
+          <Sparkles size={14} />
           Programmatic Multi-Agent Orchestration
         </div>
-        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight leading-tight">
-          <span className="gradient-text">Code-as-Orchestration</span>
+        <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight text-text-primary leading-tight">
+          Code-as-Orchestration
         </h1>
-        <p className="text-base text-text-secondary max-w-3xl mx-auto leading-relaxed">
-          Instead of fixed DAG routing, each request gets a fresh
-          <strong className="text-text-primary"> async orchestration script</strong>.
-          That script runs in a hardened sandbox, calls expert tools
-          programmatically, and returns only the final synthesis.
+        <p className="text-lg text-text-secondary max-w-2xl mx-auto leading-relaxed">
+          Instead of fixed routing, each request gets a fresh async script.
+          The script runs in a sandbox, calls expert tools programmatically,
+          and returns the final result.
         </p>
         <motion.button
           variants={item}
           onClick={onLearnMore}
-          className="inline-flex items-center gap-1.5 text-xs text-accent-purple hover:text-accent-blue transition-colors mt-1"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors mt-2"
         >
-          Learn the architecture details
-          <ArrowRight size={12} />
+          Learn how it works
+          <ArrowRight size={14} />
         </motion.button>
       </motion.div>
 
-      <motion.div variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        {[
-          {
-            title: 'Novelty',
-            icon: Code2,
-            text: 'The orchestrator writes executable Python plans per query, not static graph edges.',
-            color: 'text-accent-purple',
-            bg: 'bg-accent-purple/10',
-          },
-          {
-            title: 'How it is achieved',
-            icon: Workflow,
-            text: 'Generated code awaits expert tool functions, loops over data, and branches with real control flow.',
-            color: 'text-accent-blue',
-            bg: 'bg-accent-blue/10',
-          },
-          {
-            title: 'Why it matters',
-            icon: Shield,
-            text: 'Execution is AST-validated and sandboxed, while intermediate reasoning stays out of chat context.',
-            color: 'text-accent-teal',
-            bg: 'bg-accent-teal/10',
-          },
-        ].map(({ title, icon: Icon, text, color, bg }) => (
-          <div key={title} className="glass-card p-4">
-            <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center mb-2.5`}>
-              <Icon size={15} className={color} />
-            </div>
-            <h3 className="text-sm font-semibold text-text-primary mb-1.5">
-              {title}
-            </h3>
-            <p className="text-xs text-text-secondary leading-relaxed">{text}</p>
-          </div>
-        ))}
-      </motion.div>
-
       {/* Prompt Cards */}
-      <motion.div variants={item}>
+      <motion.div variants={item} className="pt-8">
         <PromptCards onSelect={onSelectPrompt} />
       </motion.div>
     </motion.div>

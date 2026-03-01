@@ -1,51 +1,32 @@
-param(
-  [switch]$SkipFrontendInstall,
-  [switch]$SkipBackendSync
-)
+<#
+.SYNOPSIS
+A Windows wrapper to securely start the Programmatic Multi-Agent Orchestration application inside the WSL subsystem.
 
-$ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+.DESCRIPTION
+This script prevents Windows developers from accidentally downloading `node_modules` or `uv` environments containing Windows native binaries (which crash Linux). By acting as a proxy, it forwards executing commands strictly into the `wsl` linux subsystem.
 
-Write-Host "[MoE] Project root: $root"
-Set-Location $root
+.EXAMPLE
+.\start.ps1
+.\start.ps1 --setup
+#>
 
-if (-not $SkipBackendSync) {
-  Write-Host "[MoE] Syncing Python env with uv..."
-  uv sync
+$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Replace backslashes so wsl does not treat them as bash escape sequences
+$PosixStylePath = $ScriptPath.Replace('\', '/')
+
+# Convert Windows path to WSL path 
+# (e.g., C:/Users/emanu/ -> /mnt/c/Users/emanu/)
+$WslPath = wsl wslpath "$PosixStylePath"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[moe] wsl command failed. Is Windows Subsystem for Linux (WSL) installed?" -ForegroundColor Red
+    exit 1
 }
 
-if (-not $SkipFrontendInstall) {
-  Write-Host "[MoE] Installing frontend dependencies..."
-  npm install --prefix frontend
-}
+# Collect args array and wrap them into a single bash string
+$ArgsString = $args -join " "
 
-Write-Host "[MoE] Starting backend on http://127.0.0.1:8000 ..."
-$backend = Start-Process -FilePath "uv" -ArgumentList "run", "uvicorn", "api.main:app", "--reload", "--host", "127.0.0.1", "--port", "8000" -PassThru -WindowStyle Normal
+Write-Host "[moe] Launching application from inside Windows Subsystem for Linux (WSL)..." -ForegroundColor Cyan
+Write-Host "[moe] Forwarding command: bash start.sh $ArgsString" -ForegroundColor DarkGray
 
-$ready = $false
-for ($i = 0; $i -lt 40; $i++) {
-  Start-Sleep -Milliseconds 300
-  try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/health" -UseBasicParsing -TimeoutSec 2
-    if ($resp.StatusCode -eq 200) {
-      $ready = $true
-      break
-    }
-  } catch {
-  }
-}
-
-if (-not $ready) {
-  Write-Host "[MoE] Backend did not become ready on :8000. Stop process id $($backend.Id) and inspect logs."
-  exit 1
-}
-
-Write-Host "[MoE] Backend ready. Starting frontend on http://127.0.0.1:5173 ..."
-$frontend = Start-Process -FilePath "npm" -ArgumentList "run", "dev", "--prefix", "frontend" -PassThru -WindowStyle Normal
-
-Write-Host "[MoE] ✅ Both services started"
-Write-Host "       Frontend: http://127.0.0.1:5173"
-Write-Host "       Backend : http://127.0.0.1:8000/api/health"
-Write-Host "       Backend PID: $($backend.Id)"
-Write-Host "       Frontend PID: $($frontend.Id)"
-Write-Host "[MoE] Use Stop-Process -Id <PID> to stop services."
+# Enter the directory and execute the bash script directly inside WSL
+wsl bash -c "cd '$WslPath' && bash start.sh $ArgsString"

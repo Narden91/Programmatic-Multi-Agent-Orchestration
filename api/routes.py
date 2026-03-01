@@ -21,6 +21,7 @@ router = APIRouter()
 AVAILABLE_MODELS = [
     "meta-llama/llama-4-maverick-17b-128e-instruct",
     "llama-3.3-70b-versatile",
+    "llama3-8b-8192",
     "qwen/qwen3-32b",
     "moonshotai/kimi-k2-instruct-0905",
 ]
