@@ -24,6 +24,11 @@ if (Test-Path "frontend\node_modules\@rollup\rollup-linux-x64-gnu") {
     Write-Host "[moe] Detected leftover Linux node_modules. Cleaning for Windows native..." -ForegroundColor Yellow
     Remove-Item -Recurse -Force "frontend\node_modules" -ErrorAction SilentlyContinue
 }
+if (Test-Path ".venv\lib64") {
+    Write-Host "[moe] Detected leftover Linux/WSL Python environment. Cleaning for Windows native..." -ForegroundColor Yellow
+    # Windows native remove might fail on WSL symlinks, so we use cmd rmdir
+    cmd /c rmdir /s /q .venv
+}
 
 # 3. Setup Dependencies
 if (-not (Test-Path ".venv") -or $Setup) {
@@ -54,4 +59,7 @@ Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host "Backend : http://127.0.0.1:8000" -ForegroundColor White
 Write-Host ""
 
-& npx concurrently -k -c "cyan,magenta" -n "BACKEND,FRONTEND" "uv run uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload" "npm run dev --prefix frontend"
+$env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
+$env:TOKENIZERS_PARALLELISM = "false"
+
+& npx concurrently -k -c "cyan,magenta" -n "BACKEND,FRONTEND" "uv run uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir src --reload-dir api" "npm run dev --prefix frontend"
