@@ -89,7 +89,16 @@ _SAFE_BUILTINS = {
 }
 
 # AST node types that are never allowed in generated code
-_BLOCKED_AST_NODES = (ast.Import, ast.ImportFrom)
+_BLOCKED_AST_NODES = (
+    ast.Import,
+    ast.ImportFrom,
+    # Block math operators that can cause CPU/memory exhaustion (e.g. "a" * 10**9)
+    ast.Pow,
+    ast.Mult,
+    ast.LShift,
+    ast.RShift,
+    ast.MatMult,
+)
 
 # Attribute names that must never be accessed
 _BLOCKED_ATTRIBUTES: Set[str] = {
@@ -185,10 +194,10 @@ class CodeSandbox:
         has_orchestrate = False
 
         for node in ast.walk(tree):
-            # 1. Block import / import-from
+            # 1. Block import / import-from and dangerous ops
             if isinstance(node, _BLOCKED_AST_NODES):
                 raise SandboxSecurityError(
-                    f"Import statements are not allowed in sandbox code "
+                    f"AST node {type(node).__name__} is not allowed in sandbox code "
                     f"(line {getattr(node, 'lineno', '?')})"
                 )
 

@@ -87,24 +87,16 @@ if [ ! -f ".env" ]; then
   log "Warning: .env not found in project root. API key auto-load may fail."
 fi
 
-if [ "$SETUP_MODE" -eq 1 ]; then
-  log "Setup mode enabled: syncing Python dependencies (uv sync)..."
-  UV_LINK_MODE="${UV_LINK_MODE:-copy}" uv sync
-
-  log "Setup mode enabled: installing frontend dependencies..."
-  npm install --prefix frontend --no-audit --no-fund
-else
-  log "Skipping dependency installation (fast start mode)."
-  log "Use 'bash start.sh --setup' after dependency or lockfile changes."
-
+if [ "$SETUP_MODE" -eq 0 ]; then
   if [ ! -d ".venv" ]; then
-    log "Python env not found (.venv). Run: bash start.sh --setup"
-    exit 1
+    log "Python env not found (.venv)."
+    log "Automatically enabling setup mode..."
+    SETUP_MODE=1
   fi
 
   if [ ! -d "frontend/node_modules" ]; then
-    log "frontend/node_modules not found. Run: bash start.sh --setup"
-    exit 1
+    log "frontend/node_modules not found. Automatically enabling setup mode..."
+    SETUP_MODE=1
   fi
 
   if [ ! -d "frontend/node_modules/@rollup/rollup-linux-x64-gnu" ] && [ "$(uname -s)" = "Linux" ]; then
@@ -114,6 +106,17 @@ else
     rm -rf frontend/node_modules frontend/package-lock.json
     SETUP_MODE=1
   fi
+fi
+
+if [ "$SETUP_MODE" -eq 1 ]; then
+  log "Setup mode enabled: syncing Python dependencies (uv sync)..."
+  UV_LINK_MODE="${UV_LINK_MODE:-copy}" uv sync
+
+  log "Setup mode enabled: installing frontend dependencies..."
+  npm install --prefix frontend --no-audit --no-fund
+else
+  log "Skipping dependency installation (fast start mode)."
+  log "Use 'bash start.sh --setup' after dependency or lockfile changes."
 fi
 
 log "Starting backend on http://${BACKEND_HOST}:${BACKEND_PORT} ..."
