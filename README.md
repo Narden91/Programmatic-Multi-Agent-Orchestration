@@ -33,13 +33,15 @@ When a query arrives, our **Master Orchestrator** doesn't just route it through 
 | **Core** | 🛡️ Hardened code sandbox with AST validation, restricted builtins, and timeout enforcement |
 | **Core** | 🤖 Transient micro-agents (Technical, Creative, Analytical, General) spawned as async tool functions |
 | **Core** | 📉 Infinite context compression — intermediate dialogues stay in sandbox variables, saving tokens |
-| **Multi-Provider** | ⚡ Groq (default), OpenAI, and Anthropic via a pluggable `LLMFactory` |
+| **Core** | ⚡ Zero-Latency Speculative Execution — Transparent AST Parallelizer automatically rewrites sequential tasks |
+| **Multi-Provider** | ⚡ Groq (default), OpenAI, and Anthropic seamlessly auto-detected via `LLMFactory` and dynamically bound |
 | **Multi-Provider** | 🔌 Per-expert provider override — mix Groq for speed and OpenAI for depth in the same pipeline |
 | **Observability** | 📊 Real-time streaming trace system with async subscriptions |
 | **Observability** | 📈 Token tracking with per-model cost estimation |
 | **Observability** | 🔍 Static code analysis — AST-extracted execution plans before a single LLM call runs |
 | **Memory** | 💬 Multi-turn conversation memory with sliding window and optional JSON persistence |
 | **Memory** | 📚 Script bank — stores successful orchestration scripts for few-shot prompting |
+| **Memory** | ⚡ `numpy`-vectorized geometric fallback for near-instant offline DB similarity searches |
 | **Extensibility** | 🧩 Dynamic expert registry — add/remove expert types at runtime |
 | **Extensibility** | 🏗️ Benchmark harness with standard suite for regression testing |
 | **Security** | 🔒 `SecretStr` wrapper prevents API keys from leaking in repr/logs/tracebacks |
