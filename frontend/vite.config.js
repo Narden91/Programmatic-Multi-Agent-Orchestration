@@ -9,6 +9,14 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('error', (err, req, res) => {
+            // Suppress verbose ECONNREFUSED terminal dumping during slow backend startup
+            if (err.code !== 'ECONNREFUSED') {
+              console.log('proxy error', err);
+            }
+          });
+        }
       },
     },
   },
