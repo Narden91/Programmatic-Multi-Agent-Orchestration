@@ -1,32 +1,57 @@
-<#
-.SYNOPSIS
-A Windows wrapper to securely start the Programmatic Multi-Agent Orchestration application inside the WSL subsystem.
+param (
+    [switch]$Setup,
+    [switch]$Build
+)
 
-.DESCRIPTION
-This script prevents Windows developers from accidentally downloading `node_modules` or `uv` environments containing Windows native binaries (which crash Linux). By acting as a proxy, it forwards executing commands strictly into the `wsl` linux subsystem.
+$ErrorActionPreference = "Stop"
 
-.EXAMPLE
-.\start.ps1
-.\start.ps1 --setup
-#>
+Write-Host "==========================================" -ForegroundColor Cyan
+Write-Host " Programmatic Multi-Agent Orchestration   " -ForegroundColor Cyan
+Write-Host "==========================================" -ForegroundColor Cyan
 
-$ScriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-# Replace backslashes so wsl does not treat them as bash escape sequences
-$PosixStylePath = $ScriptPath.Replace('\', '/')
-
-# Convert Windows path to WSL path 
-# (e.g., C:/Users/emanu/ -> /mnt/c/Users/emanu/)
-$WslPath = wsl wslpath "$PosixStylePath"
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[moe] wsl command failed. Is Windows Subsystem for Linux (WSL) installed?" -ForegroundColor Red
+# 1. Check requirements
+if (-not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] 'uv' is not installed or not in PATH." -ForegroundColor Red
+    exit 1
+}
+if (-not (Get-Command "npm" -ErrorAction SilentlyContinue)) {
+    Write-Host "[ERROR] 'npm' is not installed or not in PATH." -ForegroundColor Red
     exit 1
 }
 
-# Collect args array and wrap them into a single bash string
-$ArgsString = $args -join " "
+# 2. Clean Linux artifacts if moving from WSL
+if (Test-Path "frontend\node_modules\@rollup\rollup-linux-x64-gnu") {
+    Write-Host "[moe] Detected leftover Linux node_modules. Cleaning for Windows native..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force "frontend\node_modules" -ErrorAction SilentlyContinue
+}
 
-Write-Host "[moe] Launching application from inside Windows Subsystem for Linux (WSL)..." -ForegroundColor Cyan
-Write-Host "[moe] Forwarding command: bash start.sh $ArgsString" -ForegroundColor DarkGray
+# 3. Setup Dependencies
+if (-not (Test-Path ".venv") -or $Setup) {
+    Write-Host "[moe] Syncing Python dependencies (uv sync)..." -ForegroundColor Yellow
+    & uv sync
+}
 
-# Enter the directory and execute the bash script directly inside WSL
-wsl bash -c "cd '$WslPath' && bash start.sh $ArgsString"
+if (-not (Test-Path "frontend\node_modules") -or $Setup) {
+    Write-Host "[moe] Installing Frontend dependencies (npm install)..." -ForegroundColor Yellow
+    Push-Location frontend
+    & npm install --no-audit --no-fund
+    Pop-Location
+}
+
+if ($Build) {
+    Write-Host "[moe] Building Frontend for Production..." -ForegroundColor Yellow
+    Push-Location frontend
+    & npm run build
+    Pop-Location
+    Write-Host "[moe] Build complete." -ForegroundColor Green
+    exit 0
+}
+
+# 4. Run Services Concurrently
+Write-Host ""
+Write-Host "[moe] Starting Services! Press Ctrl+C to Stop." -ForegroundColor Green
+Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
+Write-Host "Backend : http://127.0.0.1:8000" -ForegroundColor White
+Write-Host ""
+
+& npx concurrently -k -c "cyan,magenta" -n "BACKEND,FRONTEND" "uv run uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload" "npm run dev --prefix frontend"

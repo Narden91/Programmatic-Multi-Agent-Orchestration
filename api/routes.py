@@ -82,15 +82,24 @@ async def run_query(req: QueryRequest):
             graph.ainvoke(initial_state), timeout=timeout
         )
 
+        final_answer = result.get("final_answer", "")
+        error = result.get("code_execution_error", "")
+        iters = result.get("code_execution_iterations", 0)
+
+        if not final_answer and error:
+            final_answer = f"**Orchestration Failed after {iters} attempts**\n\n```text\n{error}\n```"
+
         return QueryResponse(
-            final_answer=result.get("final_answer", ""),
+            final_answer=final_answer,
             generated_code=result.get("generated_code", ""),
-            code_execution_error=result.get("code_execution_error", ""),
-            code_execution_iterations=result.get("code_execution_iterations", 0),
+            code_execution_error=error,
+            code_execution_iterations=iters,
             selected_experts=result.get("selected_experts", []),
             expert_responses=result.get("expert_responses", {}),
             execution_plan=result.get("execution_plan", {}),
             token_usage=result.get("token_usage", {}),
+            trace_dna=result.get("trace_dna", []),
+            sandbox_output=result.get("sandbox_output", ""),
         )
     except asyncio.TimeoutError:
         raise HTTPException(

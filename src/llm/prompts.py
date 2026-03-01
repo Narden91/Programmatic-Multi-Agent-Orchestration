@@ -39,7 +39,7 @@ class OrchestratorPrompts:
         descs = expert_descriptions or _fallback
 
         experts_list = "\n".join([
-            f"- query_{expert}_expert(prompt: str) -> str : for {descs.get(expert, 'general queries')}"
+            f"  * '{expert}' : for {descs.get(expert, 'general queries')}"
             for expert in available_experts
         ])
 
@@ -73,7 +73,11 @@ class OrchestratorPrompts:
 User Query: "{query}"
 {context_section}
 You have access to the following async functions (tools) in your sandbox environment:
+- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. Use `.text` on the result (e.g. `res = await query_agent('technical', '...'); print(res.text)`). Available agent_types:
 {experts_list}
+- memory_store(key: str, text: str, metadata: dict = None) -> str : stores text in ephemeral vector database
+- memory_search(query: str, top_k: int = 5) -> list[dict] : retrieves top_k semantically relevant chunks
+- compress_context(query: str, top_k: int = 5) -> str : returns a summarized string of relevant memory chunks
 - asyncio.gather(*tasks) # for running agents in parallel
 
 Instructions:
@@ -89,13 +93,13 @@ Instructions:
 Example:
 ```python
 async def orchestrate():
-    technical_task = query_technical_expert("Explain the architecture part of: " + user_query_fragment)
-    analytical_task = query_analytical_expert("Analyze the data part of: " + user_query_fragment)
+    technical_task = query_agent("technical", "Explain the architecture part of: " + user_query_fragment)
+    analytical_task = query_agent("analytical", "Analyze the data part of: " + user_query_fragment)
     
-    tech_response, analytical_response = await asyncio.gather(technical_task, analytical_task)
+    tech_result, analytical_result = await asyncio.gather(technical_task, analytical_task)
     
-    final_synthesis = await query_general_expert(f"Combine these: {{tech_response}} and {{analytical_response}} into a cohesive summary.")
-    return final_synthesis
+    final_synthesis = await query_agent("general", f"Combine these: {{tech_result.text}} and {{analytical_result.text}} into a cohesive summary.")
+    return final_synthesis.text
 ```
 
 Write the orchestration code for the User Query now:"""
@@ -118,7 +122,7 @@ Write the orchestration code for the User Query now:"""
         descs = expert_descriptions or _fallback
 
         experts_list = "\n".join([
-            f"- query_{expert}_expert(prompt: str) -> str : for {descs.get(expert, 'general queries')}"
+            f"  * '{expert}' : for {descs.get(expert, 'general queries')}"
             for expert in available_experts
         ])
 
@@ -127,7 +131,11 @@ Write the orchestration code for the User Query now:"""
 User Query: "{query}"
 
 Available async functions (tools):
+- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. You MUST access `.text` on the returned AgentResult object! Available agent_types:
 {experts_list}
+- memory_store(key: str, text: str, metadata: dict = None) -> str
+- memory_search(query: str, top_k: int = 5) -> list[dict]
+- compress_context(query: str, top_k: int = 5) -> str
 - asyncio.gather(*tasks)
 
 --- FAILED SCRIPT ---

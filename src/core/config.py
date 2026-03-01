@@ -144,6 +144,13 @@ class MoEConfig:
                 llm_config=LLMConfig.from_env("GENERAL"),
                 system_prompt="You are a general knowledge expert, friendly and conversational.",
                 confidence_threshold=0.75
+            ),
+            "critical-thinker": ExpertConfig(
+                name="critical-thinker",
+                description="Expert in scientific QA, logical fallacy checking, and evidence evaluation",
+                llm_config=LLMConfig.from_env("CRITICAL_THINKER"),
+                system_prompt="You are a Critical-Thinker expert. Your job is to rigorously evaluate statements, arguments, and evidence for logical fallacies, biases, and structural soundness.",
+                confidence_threshold=0.90
             )
         }
     

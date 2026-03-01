@@ -4,10 +4,12 @@ import CodePanel from './CodePanel'
 import FlowGraph from './FlowGraph'
 import TokenChart from './TokenChart'
 import ExpertCards from './ExpertCards'
+import VisualDNA from './VisualDNA'
 
 const tabs = [
   { id: 'code', label: 'Code', icon: Code2 },
   { id: 'flow', label: 'Agent Flow', icon: Workflow },
+  { id: 'dna', label: 'Visual DNA', icon: Code2 },
   { id: 'tokens', label: 'Tokens', icon: BarChart3 },
   { id: 'experts', label: 'Experts', icon: Users },
 ]
@@ -23,11 +25,10 @@ export default function MissionControl({ data, id }) {
           <button
             key={tabId}
             onClick={() => setActiveTab(tabId)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-medium transition-all relative ${
-              activeTab === tabId
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-[11px] font-medium transition-all relative ${activeTab === tabId
                 ? 'text-accent-purple'
                 : 'text-text-muted hover:text-text-secondary'
-            }`}
+              }`}
           >
             <Icon size={12} />
             {label}
@@ -75,6 +76,9 @@ export default function MissionControl({ data, id }) {
             expertResponses={data.expert_responses}
             selectedExperts={data.selected_experts}
           />
+        )}
+        {activeTab === 'dna' && (
+          <VisualDNA trace={data.trace_dna} />
         )}
       </div>
     </div>

@@ -19,6 +19,8 @@ class QueryResponse(BaseModel):
     expert_responses: Dict[str, str]
     execution_plan: Dict[str, Any]
     token_usage: Dict[str, Any]
+    trace_dna: List[Dict[str, Any]] = []
+    sandbox_output: str = ""
 
 
 class ModelsResponse(BaseModel):

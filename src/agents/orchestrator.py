@@ -4,11 +4,12 @@ from .base import BaseAgent, AsyncBaseAgent
 from .registry import registry
 from ..core.state import MoEState
 from ..llm.prompts import OrchestratorPrompts
-from ..core.sandbox import CodeSandbox
 from ..utils.code_analyzer import analyze_code
 from ..utils.metrics import get_token_tracker
-from ..utils.script_bank import ScriptBank
+from ..core.registry import OrchestrationRegistry
+from ..core.scoring import ScriptScorer
 from ..utils.tracing import get_tracer, TraceEvent, TraceKind
+from ..core.sandbox import CodeSandbox
 
 
 class OrchestratorAgent(BaseAgent):
@@ -18,12 +19,12 @@ class OrchestratorAgent(BaseAgent):
         self,
         llm_provider,
         available_experts: Optional[List[str]] = None,
-        script_bank: Optional[ScriptBank] = None,
+        script_bank: Optional[Any] = None, # kept for backward compat in init args
     ):
         super().__init__("Orchestrator", llm_provider)
         self.available_experts = available_experts or list(registry.types)
         self.prompts = OrchestratorPrompts()
-        self.script_bank = script_bank
+        self.orchestration_registry = OrchestrationRegistry()
     
     def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
@@ -32,11 +33,11 @@ class OrchestratorAgent(BaseAgent):
         descriptions = registry.descriptions()
         conversation_context = state.get('conversation_context', '')
 
-        # Gather few-shot examples from script bank
+        # Gather few-shot examples from registry
         few_shot: List[tuple] = []
-        if self.script_bank and not code_failure:
-            similar = self.script_bank.find_similar(query, top_k=2)
-            few_shot = [(r.query, r.code) for r in similar]
+        if not code_failure:
+            similar = self.orchestration_registry.search(query, top_k=2)
+            few_shot = [(r["task_description"], r["script_content"]) for r in similar]
 
         # Determine prompt based on whether it is a retry
         if code_failure and previous_code:
@@ -104,11 +105,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
     def __init__(
         self,
         timeout_seconds: int = 60,
-        script_bank: Optional[ScriptBank] = None,
+        script_bank: Optional[Any] = None,
     ):
         super().__init__("CodeExecutor")
         self.sandbox = CodeSandbox(timeout_seconds=timeout_seconds)
-        self.script_bank = script_bank
+        self.orchestration_registry = OrchestrationRegistry()
+        self.scorer = ScriptScorer()
 
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
         """Execute the generated script in the sandbox asynchronously"""
@@ -127,14 +129,21 @@ class CodeExecutionAgent(AsyncBaseAgent):
         try:
             execution_result = await self.sandbox.execute(code)
 
-            # Record success in script bank
-            if self.script_bank:
-                self.script_bank.record(
-                    query=query,
-                    code=code,
-                    experts_used=execution_result["selected_experts"],
-                    success=True,
-                )
+            # Start returning state early so scorer can use it
+            temp_state = {
+                "final_answer": execution_result["result"],
+                "trace_dna": execution_result.get("trace", [])
+            }
+            
+            # Score it async
+            score = await self.scorer.score_execution(query, temp_state)
+
+            # Record success in registry 
+            self.orchestration_registry.store_script(
+                task_description=query,
+                script_content=code,
+                score=score
+            )
 
             await get_tracer().emit(TraceEvent(
                 kind=TraceKind.SANDBOX_SUCCESS.value, agent=self.name,
@@ -145,6 +154,8 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "final_answer": execution_result["result"],
                 "selected_experts": execution_result["selected_experts"],
                 "expert_responses": execution_result["expert_responses"],
+                "trace_dna": execution_result.get("trace", []),
+                "sandbox_output": execution_result.get("sandbox_output", ""),
                 "code_execution_error": "",
                 "code_execution_iterations": iterations + 1,
                 "execution_plan": plan.to_dict(),
@@ -164,11 +175,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 data={"error": str(e)},
             ))
 
-            # Record failure in script bank
-            if self.script_bank:
-                self.script_bank.record(
-                    query=query, code=code, experts_used=[], success=False,
-                )
+            # Record failure in registry (optional, maybe score=0.0)
+            self.orchestration_registry.store_script(
+                task_description=query,
+                script_content=code,
+                score=0.0
+            )
 
             return {
                 "code_execution_error": str(e),

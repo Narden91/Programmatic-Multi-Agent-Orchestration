@@ -28,6 +28,8 @@ class MoEState(TypedDict):
     token_usage: Dict
     execution_plan: Dict
     conversation_context: str  # formatted multi-turn history
+    trace_dna: List[Dict]
+    sandbox_output: str
 
 
 def create_initial_state(query: str) -> MoEState:
@@ -47,4 +49,6 @@ def create_initial_state(query: str) -> MoEState:
         "token_usage": {},
         "execution_plan": {},
         "conversation_context": "",
+        "trace_dna": [],
+        "sandbox_output": "",
     }

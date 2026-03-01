@@ -98,14 +98,16 @@ def analyze_code(code: str) -> ExecutionPlan:
                     ec.group_id = gather_id
                     plan.calls.append(ec)
 
-    # -- Pass 2: find standalone query_*_expert() calls NOT inside a gather
+    # -- Pass 2: find standalone query_agent() calls NOT inside a gather
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
             and id(node) not in _inside_gather
             and _is_expert_call(node)
         ):
-            expert_type = node.func.id.removeprefix("query_").removesuffix("_expert")
+            expert_type = "unknown"
+            if len(node.args) > 0 and isinstance(node.args[0], ast.Constant):
+                expert_type = str(node.args[0].value)
             plan.has_sequential = True
             plan.calls.append(
                 ExpertCall(
@@ -135,21 +137,22 @@ def _is_gather(node: ast.Call) -> bool:
 
 
 def _is_expert_call(node: ast.Call) -> bool:
-    """Return True if *node* is ``query_*_expert(...)``."""
+    """Return True if *node* is ``query_agent(...)``."""
     func = node.func
     return (
         isinstance(func, ast.Name)
-        and func.id.startswith("query_")
-        and func.id.endswith("_expert")
+        and func.id == "query_agent"
     )
 
 
 def _find_expert_calls(node: ast.AST) -> List[ExpertCall]:
-    """Find all ``query_*_expert`` calls anywhere inside *node*."""
+    """Find all ``query_agent`` calls anywhere inside *node*."""
     calls: list[ExpertCall] = []
     for child in ast.walk(node):
         if isinstance(child, ast.Call) and _is_expert_call(child):
-            expert_type = child.func.id.removeprefix("query_").removesuffix("_expert")
+            expert_type = "unknown"
+            if len(child.args) > 0 and isinstance(child.args[0], ast.Constant):
+                expert_type = str(child.args[0].value)
             calls.append(
                 ExpertCall(
                     expert_type=expert_type,

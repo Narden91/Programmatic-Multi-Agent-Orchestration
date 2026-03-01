@@ -187,6 +187,25 @@ def _register_defaults() -> None:
             ),
             confidence_threshold=0.75,
         ),
+        ExpertSpec(
+            expert_type="critical-thinker",
+            description="scientific QA, logical fallacy checking, evidence evaluation",
+            system_prompt=(
+                "You are a Critical-Thinker expert. Your job is to rigorously evaluate statements, "
+                "arguments, and evidence for logical fallacies, biases, and structural soundness."
+            ),
+            prompt_template=(
+                "You are a Critical-Thinker expert evaluating the following:\n\n"
+                '"{query}"\n\n'
+                "Analyze it strictly for:\n"
+                "- Logical fallacies\n"
+                "- Quality of evidence\n"
+                "- Potential biases or blind spots\n"
+                "- Provide a final quantitative Quality Score (0.0 to 1.0) on the last line like 'SCORE: 0.95'.\n\n"
+                "Response:"
+            ),
+            confidence_threshold=0.90,
+        ),
     ]
     for spec in _defaults:
         registry.register(

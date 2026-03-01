@@ -2,22 +2,15 @@ import ast
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional, Set
-from ..agents.tools import get_tool_functions
+from .agents import query_agent as real_query_agent, AgentResult
+from .memory import EphemeralMemory
+from .tracing import Tracer
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Safe stdout sink — captures output instead of leaking to real stdout
-# ---------------------------------------------------------------------------
-
 class _SandboxPrinter:
     """Drop-in replacement for ``print()`` inside the sandbox.
-
-    Captures output in a bounded buffer instead of writing to the host
-    process's stdout, preventing data exfiltration.
-    """
-
+    Captures output in a bounded buffer instead of writing to the host process's stdout."""
     MAX_CHARS = 10_000
 
     def __init__(self) -> None:
@@ -44,241 +37,156 @@ class SandboxTimeoutError(Exception):
     """Raised when sandbox execution exceeds the configured timeout."""
 
 
-# ---------------------------------------------------------------------------
-# Safe builtins whitelist — everything else (including __import__,
-# eval, exec, open, compile, getattr, setattr, delattr, globals,
-# locals, vars, dir, type, breakpoint, exit, quit, input, memoryview,
-# classmethod, staticmethod, super, property, …) is blocked.
-# ---------------------------------------------------------------------------
 _SAFE_BUILTINS = {
-    # Types / constructors
-    "bool": bool,
-    "bytes": bytes,
-    "complex": complex,
-    "dict": dict,
-    "float": float,
-    "frozenset": frozenset,
-    "int": int,
-    "list": list,
-    "set": set,
-    "str": str,
-    "tuple": tuple,
-    # Functional helpers
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "enumerate": enumerate,
-    "filter": filter,
-    "isinstance": isinstance,
-    "len": len,
-    "map": map,
-    "max": max,
-    "min": min,
-    # print is replaced by _SandboxPrinter() per-execution (see _build_globals)
-    "range": range,
-    "repr": repr,
-    "reversed": reversed,
-    "round": round,
-    "sorted": sorted,
-    "sum": sum,
-    "zip": zip,
-    # Constants
-    "True": True,
-    "False": False,
-    "None": None,
+    "bool": bool, "bytes": bytes, "complex": complex, "dict": dict, "float": float,
+    "frozenset": frozenset, "int": int, "list": list, "set": set, "str": str, "tuple": tuple,
+    "abs": abs, "all": all, "any": any, "enumerate": enumerate, "filter": filter,
+    "isinstance": isinstance, "len": len, "map": map, "max": max, "min": min,
+    "range": range, "repr": repr, "reversed": reversed, "round": round, "sorted": sorted,
+    "sum": sum, "zip": zip, "True": True, "False": False, "None": None,
 }
 
-# AST node types that are never allowed in generated code
 _BLOCKED_AST_NODES = (
-    ast.Import,
-    ast.ImportFrom,
-    # Block math operators that can cause CPU/memory exhaustion (e.g. "a" * 10**9)
-    ast.Pow,
-    ast.Mult,
-    ast.LShift,
-    ast.RShift,
-    ast.MatMult,
+    ast.Import, ast.ImportFrom, ast.Pow, ast.Mult, ast.LShift, ast.RShift, ast.MatMult,
 )
 
-# Attribute names that must never be accessed
 _BLOCKED_ATTRIBUTES: Set[str] = {
-    "__import__", "__subclasses__", "__bases__", "__mro__",
-    "__globals__", "__code__", "__builtins__", "__class__",
-    "__reduce__", "__reduce_ex__",
-    "__qualname__", "__module__", "__dict__", "__weakref__",
-    "__init_subclass__", "__set_name__",
+    "__import__", "__subclasses__", "__bases__", "__mro__", "__globals__", "__code__", "__builtins__", "__class__",
+    "__reduce__", "__reduce_ex__", "__qualname__", "__module__", "__dict__", "__weakref__", "__init_subclass__", "__set_name__",
 }
 
-# Builtin names that must never appear as plain Name references
 _BLOCKED_NAMES: Set[str] = {
-    "__import__", "eval", "exec", "compile", "open",
-    "getattr", "setattr", "delattr", "globals", "locals",
-    "vars", "dir", "breakpoint", "exit", "quit", "input",
-    "memoryview", "type", "super", "classmethod", "staticmethod",
+    "__import__", "eval", "exec", "compile", "open", "getattr", "setattr", "delattr", "globals", "locals",
+    "vars", "dir", "breakpoint", "exit", "quit", "input", "memoryview", "type", "super", "classmethod", "staticmethod",
     "property", "__build_class__",
 }
 
 
 class CodeSandbox:
-    """A hardened sandbox to execute the LLM-generated async orchestration script.
-
-    Security layers:
-      1. **AST validation** – the code is parsed and walked *before* execution.
-         Import statements, dangerous attribute accesses (``__globals__``, etc.),
-         and references to blocked builtins (``eval``, ``exec``, ``open`` …) are
-         rejected at parse time.
-      2. **Restricted ``__builtins__``** – only a curated whitelist of safe
-         builtins is exposed inside the ``exec`` namespace.  ``__import__``,
-         ``eval``, ``exec``, ``open``, ``compile``, ``getattr`` and friends
-         are simply absent.
-      3. **Execution timeout** – ``asyncio.wait_for`` enforces an upper bound
-         on wall-clock time (default 60 s, configurable via *timeout_seconds*).
-
-    Wraps expert tool functions with tracking so that the caller can retrieve
-    which experts were invoked and what they returned — information that is
-    propagated back into the LangGraph state.
-    """
-
-    # Expert tools are built dynamically from the registry at init time
-    # via ``get_tool_functions()``.
-
     def __init__(self, timeout_seconds: int = 60):
         self.timeout_seconds = timeout_seconds
+        # These will be set per execution
+        self.tracer: Optional[Tracer] = None
+        self.memory: Optional[EphemeralMemory] = None
         self._call_log: Dict[str, str] = {}
-        self._build_globals()
-
-    # ------------------------------------------------------------------
-    # Tracking helpers
-    # ------------------------------------------------------------------
-    def _make_tracked(self, expert_type: str, original_fn):
-        """Return an async wrapper that delegates to *original_fn* and logs the call."""
-        async def _tracked(prompt: str) -> str:
-            result = await original_fn(prompt)
-            # Keep the *last* response per expert type (adequate for state)
-            self._call_log[expert_type] = result
-            return result
-        # Preserve a human-readable name for debugging
-        _tracked.__name__ = f"query_{expert_type}_expert"
+        
+    def _make_tracked_query_agent(self):
+        """Creates a sandboxed version of query_agent that is traced and logs results."""
+        async def _tracked(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
+            span = self.tracer.start_span(
+                name=f"query_agent_{agent_type}",
+                span_type="agent",
+                inputs={"agent_type": agent_type, "prompt": prompt, "context_ids": context_ids}
+            )
+            try:
+                # We return the AgentResult object to the sandbox, so they can use .text
+                # If they pass it to str(), it might not work well, so we might need
+                # to instruct the orchestrator to use result.text.
+                result = await real_query_agent(agent_type, prompt, context_ids)
+                self._call_log[agent_type] = result.text
+                
+                self.tracer.end_span(span, outputs={"text": result.text}, metrics={"tokens": result.token_count})
+                return result
+            except Exception as e:
+                self.tracer.end_span(span, error=e)
+                raise
         return _tracked
 
-    def _build_globals(self):
-        """Construct the globals dict injected into the sandbox, with tracked wrappers."""
-        tool_fns = get_tool_functions()
-        self.allowed_globals: Dict[str, Any] = {
-            # Locked-down builtins — the ONLY builtins the code can see
-            "__builtins__": {
-                **_SAFE_BUILTINS,
-                # print is a per-execution sandbox printer (replaced in execute())
-                "print": _SandboxPrinter(),
-            },
-            "asyncio": asyncio,
-            # Tracked expert wrappers (dynamically generated from registry)
-            **{
-                f"query_{name}_expert": self._make_tracked(name, fn)
-                for name, fn in tool_fns.items()
-            },
-        }
+    def _make_tracked_memory(self):
+        """Creates sandboxed memory functions, traced."""
+        async def _store(key: str, text: str, metadata: dict = None) -> str:
+            span = self.tracer.start_span("memory_store", "memory", {"key": key, "text_len": len(text)})
+            try:
+                res = await self.memory.store(key, text, metadata)
+                self.tracer.end_span(span, outputs={"key": res})
+                return res
+            except Exception as e:
+                self.tracer.end_span(span, error=e)
+                raise
 
-    # ------------------------------------------------------------------
-    # AST validation
-    # ------------------------------------------------------------------
+        async def _search(query: str, top_k: int = 5) -> List[dict]:
+            span = self.tracer.start_span("memory_search", "memory", {"query": query, "top_k": top_k})
+            try:
+                res = await self.memory.search(query, top_k)
+                self.tracer.end_span(span, outputs={"results_count": len(res)})
+                return res
+            except Exception as e:
+                self.tracer.end_span(span, error=e)
+                raise
+                
+        async def _compress(query: str, top_k: int = 5) -> str:
+            span = self.tracer.start_span("memory_compress", "memory", {"query": query, "top_k": top_k})
+            try:
+                res = await self.memory.compress_context(query, top_k)
+                self.tracer.end_span(span, outputs={"compressed_len": len(res)})
+                return res
+            except Exception as e:
+                self.tracer.end_span(span, error=e)
+                raise
+
+        return _store, _search, _compress
+
     @staticmethod
     def validate_code(code: str) -> None:
-        """Parse *code* and reject it if it contains dangerous constructs.
-
-        Raises ``SandboxSecurityError`` on violation, ``SyntaxError`` on
-        unparseable code.
-        """
-        tree = ast.parse(code)  # may raise SyntaxError — that's fine
-
+        tree = ast.parse(code)
         has_orchestrate = False
-
         for node in ast.walk(tree):
-            # 1. Block import / import-from and dangerous ops
             if isinstance(node, _BLOCKED_AST_NODES):
-                raise SandboxSecurityError(
-                    f"AST node {type(node).__name__} is not allowed in sandbox code "
-                    f"(line {getattr(node, 'lineno', '?')})"
-                )
-
-            # 2. Block dangerous attribute accesses like obj.__globals__
+                raise SandboxSecurityError(f"AST node {type(node).__name__} not allowed (line {getattr(node, 'lineno', '?')})")
             if isinstance(node, ast.Attribute) and node.attr in _BLOCKED_ATTRIBUTES:
-                raise SandboxSecurityError(
-                    f"Access to '{node.attr}' is not allowed "
-                    f"(line {getattr(node, 'lineno', '?')})"
-                )
-
-            # 3. Block references to dangerous builtin names
+                raise SandboxSecurityError(f"Access to '{node.attr}' not allowed (line {getattr(node, 'lineno', '?')})")
             if isinstance(node, ast.Name) and node.id in _BLOCKED_NAMES:
-                raise SandboxSecurityError(
-                    f"Reference to '{node.id}' is not allowed "
-                    f"(line {getattr(node, 'lineno', '?')})"
-                )
-
-            # 4. Check for async def orchestrate()
+                raise SandboxSecurityError(f"Reference to '{node.id}' not allowed (line {getattr(node, 'lineno', '?')})")
             if isinstance(node, ast.AsyncFunctionDef) and node.name == "orchestrate":
                 has_orchestrate = True
-
         if not has_orchestrate:
-            raise ValueError(
-                "The generated script must define an 'async def orchestrate():' function."
-            )
+            raise ValueError("The generated script must define an 'async def orchestrate():' function.")
 
-    # ------------------------------------------------------------------
-    # Execution
-    # ------------------------------------------------------------------
     async def execute(self, code: str) -> Dict[str, Any]:
-        """Execute the provided async Python code.
-
-        The code is expected to define an ``async def orchestrate():`` function.
-
-        Security: code is first validated via AST analysis, then executed
-        with restricted builtins inside an ``asyncio.wait_for`` timeout.
-
-        Returns:
-            A dict with keys ``result``, ``selected_experts``, and
-            ``expert_responses`` so the caller can propagate metadata back
-            into the LangGraph state.
-        """
-        # ---- Step 1: Static analysis --------------------------------
-        self.validate_code(code)  # raises on violation
-
-        # ---- Step 2: Execute with restrictions -----------------------
+        self.validate_code(code)
+        
+        # Initialize execution-specific resources
         self._call_log = {}
-        local_vars: Dict[str, Any] = {}
-
-        # Fresh printer per execution to avoid cross-request data leakage
+        self.tracer = Tracer()
+        self.memory = EphemeralMemory()
         sandbox_printer = _SandboxPrinter()
-        self.allowed_globals["__builtins__"]["print"] = sandbox_printer
+        
+        store_fn, search_fn, compress_fn = self._make_tracked_memory()
+        
+        allowed_globals = {
+            "__builtins__": {
+                **_SAFE_BUILTINS,
+                "print": sandbox_printer,
+            },
+            "asyncio": asyncio,
+            "query_agent": self._make_tracked_query_agent(),
+            "memory_store": store_fn,
+            "memory_search": search_fn,
+            "compress_context": compress_fn
+        }
 
+        local_vars: Dict[str, Any] = {}
         try:
-            # Compile and execute the definition of the functions
-            exec(code, self.allowed_globals, local_vars)  # noqa: S102
-
+            exec(code, allowed_globals, local_vars)
             orchestrate_func = local_vars['orchestrate']
-
             if not asyncio.iscoroutinefunction(orchestrate_func):
                 raise ValueError("The 'orchestrate' function must be an async function.")
 
-            # ---- Step 3: Run with timeout ---------------------------
-            result = await asyncio.wait_for(
-                orchestrate_func(),
-                timeout=self.timeout_seconds,
-            )
-
+            result = await asyncio.wait_for(orchestrate_func(), timeout=self.timeout_seconds)
+            
             return {
                 "result": str(result),
                 "selected_experts": list(self._call_log.keys()),
                 "expert_responses": dict(self._call_log),
+                "trace": self.tracer.get_trace(),
+                "sandbox_output": sandbox_printer.output
             }
         except asyncio.TimeoutError:
-            logger.error(
-                f"Sandbox execution timed out after {self.timeout_seconds}s"
-            )
-            raise SandboxTimeoutError(
-                f"Orchestration script exceeded the {self.timeout_seconds}s timeout. "
-                f"Simplify the script or increase the timeout."
-            )
+            logger.error(f"Sandbox execution timed out after {self.timeout_seconds}s")
+            raise SandboxTimeoutError(f"Orchestration script exceeded the {self.timeout_seconds}s timeout.")
         except Exception as e:
             logger.error(f"Sandbox execution failed: {e}")
             raise
+        finally:
+            if self.memory:
+                self.memory.cleanup()

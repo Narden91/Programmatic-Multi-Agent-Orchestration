@@ -45,3 +45,7 @@ htmlcov/
 # Agent
 .agent/
 .github/skills
+
+# V3 Architecture state
+.moe_registry.db
+orchestration_registry.db

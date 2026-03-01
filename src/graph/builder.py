@@ -5,7 +5,6 @@ from ..agents.registry import registry
 from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
 from ..utils.cache import ResponseCache
-from ..utils.script_bank import ScriptBank
 from ..utils.memory import ConversationMemory
 
 
@@ -15,14 +14,12 @@ class MoEGraphBuilder:
     def __init__(
         self,
         config: MoEConfig,
-        script_bank: ScriptBank | None = None,
         memory: ConversationMemory | None = None,
     ):
         """Initialize graph builder"""
         self.config = config
         self.agents = {}
         self.cache = None
-        self.script_bank = script_bank or ScriptBank()
         self.memory = memory
         self._initialize_cache()
         self._initialize_agents()
@@ -50,12 +47,10 @@ class MoEGraphBuilder:
         self.agents['orchestrator'] = OrchestratorAgent(
             orchestrator_llm,
             available_experts=list(registry.types),
-            script_bank=self.script_bank,
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(
             timeout_seconds=self.config.request_timeout,
-            script_bank=self.script_bank,
         )
     
     def _should_retry_code(self, state: MoEState) -> str:
