@@ -165,16 +165,16 @@ GROQ_API_KEY=your_groq_api_key_here
 
 ### Run the App
 
-#### Windows (PowerShell)
+#### Windows Native (Recommended)
+
+Start the entire stack (Vite + Uvicorn) seamlessly using the provided PowerShell script. It automatically manages dependencies, builds the frontend if needed, handles WSL artifact cleanup (preventing `Access Denied` errors), and totally suppresses standard PyTorch/Transformers downloading console spam.
 
 ```powershell
 # from repository root
-./start.ps1
+.\start.ps1
 ```
 
-#### WSL / Linux / macOS (bash)
-
-Given the switch to `start.ps1` for native Windows experiences, Unix-like users can either run the services manually in separate terminals or use a runner like `npx concurrently` from the root directory.
+*(Note: Use `.\start.ps1 -Build` to force a production frontend compilation before booting).*
 
 #### Manual startup (all platforms)
 
