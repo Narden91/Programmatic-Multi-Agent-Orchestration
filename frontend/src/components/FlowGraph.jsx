@@ -97,6 +97,16 @@ function FlowEdge({ x1, y1, x2, y2, delay = 0 }) {
   )
 }
 
+function calculateEdgePoints(x1, y1, x2, y2, radius) {
+  const angle = Math.atan2(y2 - y1, x2 - x1)
+  return {
+    startX: x1 + radius * Math.cos(angle),
+    startY: y1 + radius * Math.sin(angle),
+    endX: x2 - radius * Math.cos(angle),
+    endY: y2 - radius * Math.sin(angle),
+  }
+}
+
 export default function FlowGraph({ experts = [], code }) {
   if (!experts.length) {
     return (
@@ -127,8 +137,8 @@ export default function FlowGraph({ experts = [], code }) {
       expertCount === 1
         ? centerY
         : centerY -
-          expertSpread / 2 +
-          (expertSpread / (expertCount - 1)) * i,
+        expertSpread / 2 +
+        (expertSpread / (expertCount - 1)) * i,
   }))
 
   return (
@@ -163,28 +173,46 @@ export default function FlowGraph({ experts = [], code }) {
         />
 
         {/* Edges: Sandbox → Experts */}
-        {expertPositions.map((pos, i) => (
-          <FlowEdge
-            key={`s-e-${i}`}
-            x1={positions.sandbox.x + nodeRadius}
-            y1={positions.sandbox.y}
-            x2={pos.x - nodeRadius}
-            y2={pos.y}
-            delay={0.6 + i * 0.1}
-          />
-        ))}
+        {expertPositions.map((pos, i) => {
+          const edge = calculateEdgePoints(
+            positions.sandbox.x,
+            positions.sandbox.y,
+            pos.x,
+            pos.y,
+            nodeRadius
+          )
+          return (
+            <FlowEdge
+              key={`s-e-${i}`}
+              x1={edge.startX}
+              y1={edge.startY}
+              x2={edge.endX}
+              y2={edge.endY}
+              delay={0.6 + i * 0.1}
+            />
+          )
+        })}
 
         {/* Edges: Experts → Answer */}
-        {expertPositions.map((pos, i) => (
-          <FlowEdge
-            key={`e-a-${i}`}
-            x1={pos.x + nodeRadius}
-            y1={pos.y}
-            x2={positions.answer.x - nodeRadius}
-            y2={positions.answer.y}
-            delay={0.8 + i * 0.1}
-          />
-        ))}
+        {expertPositions.map((pos, i) => {
+          const edge = calculateEdgePoints(
+            pos.x,
+            pos.y,
+            positions.answer.x,
+            positions.answer.y,
+            nodeRadius
+          )
+          return (
+            <FlowEdge
+              key={`e-a-${i}`}
+              x1={edge.startX}
+              y1={edge.startY}
+              x2={edge.endX}
+              y2={edge.endY}
+              delay={0.8 + i * 0.1}
+            />
+          )
+        })}
 
         {/* Nodes */}
         <FlowNode

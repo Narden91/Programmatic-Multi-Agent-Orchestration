@@ -69,18 +69,18 @@ export default function TokenChart({ tokenUsage }) {
   return (
     <div className="space-y-4">
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="p-3 rounded-xl bg-bg/60 border border-border/50 text-center">
-          <p className="text-2xl font-bold text-accent-purple">
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="p-4 rounded-xl bg-bg/60 border border-border/50 text-center flex flex-col items-center justify-center">
+          <p className="text-3xl font-bold text-accent-blue mb-1">
             {totalTokens.toLocaleString()}
           </p>
-          <p className="text-[10px] text-text-muted mt-0.5">Total Tokens</p>
+          <p className="text-xs text-text-muted">Total Tokens</p>
         </div>
-        <div className="p-3 rounded-xl bg-bg/60 border border-border/50 text-center">
-          <p className="text-2xl font-bold text-accent-green">
+        <div className="p-4 rounded-xl bg-bg/60 border border-border/50 text-center flex flex-col items-center justify-center">
+          <p className="text-3xl font-bold text-text-primary mb-1">
             ${cost.toFixed(4)}
           </p>
-          <p className="text-[10px] text-text-muted mt-0.5">Estimated Cost</p>
+          <p className="text-xs text-text-muted">Estimated Cost</p>
         </div>
       </div>
 
@@ -145,20 +145,17 @@ export default function TokenChart({ tokenUsage }) {
                 width={80}
               />
               <Tooltip content={<CustomTooltip />} />
-              <Bar
-                dataKey="input"
-                stackId="a"
-                fill="#60a5fa"
-                radius={[0, 0, 0, 0]}
-                name="Input"
-              />
-              <Bar
-                dataKey="output"
-                stackId="a"
-                fill="#fb7185"
-                radius={[0, 4, 4, 0]}
-                name="Output"
-              />
+              {/* We no longer hardcode the stack fill here. We use Cell to dynamically color each bar segment */}
+              <Bar dataKey="input" stackId="a" name="Input">
+                {barData.map((entry, index) => (
+                  <Cell key={`cell-in-${index}`} fill={entry.fill} />
+                ))}
+              </Bar>
+              <Bar dataKey="output" stackId="a" radius={[0, 4, 4, 0]} name="Output">
+                {barData.map((entry, index) => (
+                  <Cell key={`cell-out-${index}`} fill={`${entry.fill}80`} />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
