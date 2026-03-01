@@ -61,5 +61,8 @@ Write-Host ""
 
 $env:HF_HUB_DISABLE_SYMLINKS_WARNING = "1"
 $env:TOKENIZERS_PARALLELISM = "false"
+$env:HF_HUB_DISABLE_PROGRESS_BARS = "1"
+$env:TRANSFORMERS_VERBOSITY = "error"
+$env:TQDM_DISABLE = "1"
 
 & npx concurrently -k -c "cyan,magenta" -n "BACKEND,FRONTEND" "uv run uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload --reload-dir src --reload-dir api" "npm run dev --prefix frontend"
