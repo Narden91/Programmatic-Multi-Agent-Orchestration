@@ -62,6 +62,107 @@ _BLOCKED_NAMES: Set[str] = {
 }
 
 
+class SpeculativeExecutionTransformer(ast.NodeTransformer):
+    """
+    Transforms sequential independent await query_agent() calls into asyncio.gather().
+    Zero-Latency Speculative Execution Engine.
+    """
+    def _optimize_block(self, body):
+        new_body = []
+        batch = []
+        
+        def flush_batch():
+            if not batch: return
+            if len(batch) == 1:
+                new_body.append(batch[0])
+            else:
+                targets = []
+                calls = []
+                for stmt in batch:
+                    if isinstance(stmt, ast.Assign):
+                        targets.append(stmt.targets[0])
+                    else:
+                        targets.append(None)
+                    calls.append(stmt.value.value)
+                
+                gather_call = ast.Call(
+                    func=ast.Attribute(value=ast.Name(id='asyncio', ctx=ast.Load()), attr='gather', ctx=ast.Load()),
+                    args=calls,
+                    keywords=[]
+                )
+                gather_await = ast.Await(value=gather_call)
+                
+                if all(t is None for t in targets):
+                    new_body.append(ast.Expr(value=gather_await))
+                else:
+                    if any(t is None for t in targets):
+                        # complex mix, fallback
+                        for b in batch: new_body.append(b)
+                        return
+                        
+                    tup = ast.Tuple(elts=targets, ctx=ast.Store())
+                    new_body.append(ast.Assign(targets=[tup], value=gather_await))
+            batch.clear()
+
+        for stmt in body:
+            is_candidate = False
+            assigned_names = set()
+            used_names = set()
+            
+            # Check Assign
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                if isinstance(stmt.value, ast.Await) and isinstance(stmt.value.value, ast.Call):
+                    call = stmt.value.value
+                    if isinstance(call.func, ast.Name) and call.func.id == 'query_agent':
+                        is_candidate = True
+                        assigned_names.add(stmt.targets[0].id)
+                        for node in ast.walk(call):
+                            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                                used_names.add(node.id)
+            # Check Expr
+            elif isinstance(stmt, ast.Expr):
+                if isinstance(stmt.value, ast.Await) and isinstance(stmt.value.value, ast.Call):
+                    call = stmt.value.value
+                    if isinstance(call.func, ast.Name) and call.func.id == 'query_agent':
+                        is_candidate = True
+                        for node in ast.walk(call):
+                            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                                used_names.add(node.id)
+            
+            if is_candidate:
+                assigned_in_batch = {t.targets[0].id for t in batch if isinstance(t, ast.Assign)}
+                if used_names.intersection(assigned_in_batch):
+                    flush_batch()
+                batch.append(stmt)
+            else:
+                flush_batch()
+                new_body.append(stmt)
+                
+        flush_batch()
+        return new_body
+
+    def visit_FunctionDef(self, node):
+        node.body = self._optimize_block(node.body)
+        self.generic_visit(node)
+        return node
+        
+    def visit_AsyncFunctionDef(self, node):
+        node.body = self._optimize_block(node.body)
+        self.generic_visit(node)
+        return node
+        
+    def visit_For(self, node):
+        node.body = self._optimize_block(node.body)
+        self.generic_visit(node)
+        return node
+        
+    def visit_If(self, node):
+        node.body = self._optimize_block(node.body)
+        node.orelse = self._optimize_block(node.orelse)
+        self.generic_visit(node)
+        return node
+
+
 class CodeSandbox:
     def __init__(self, timeout_seconds: int = 60):
         self.timeout_seconds = timeout_seconds
@@ -127,7 +228,7 @@ class CodeSandbox:
         return _store, _search, _compress
 
     @staticmethod
-    def validate_code(code: str) -> None:
+    def validate_code(code: str) -> ast.Module:
         tree = ast.parse(code)
         has_orchestrate = False
         for node in ast.walk(tree):
@@ -141,9 +242,17 @@ class CodeSandbox:
                 has_orchestrate = True
         if not has_orchestrate:
             raise ValueError("The generated script must define an 'async def orchestrate():' function.")
+        return tree
 
     async def execute(self, code: str) -> Dict[str, Any]:
-        self.validate_code(code)
+        tree = self.validate_code(code)
+        
+        # Zero-Latency Speculative Execution Engine Optimization
+        tree = SpeculativeExecutionTransformer().visit(tree)
+        ast.fix_missing_locations(tree)
+        
+        # Compile the optimized AST instead of the raw string
+        compiled_code = compile(tree, filename="<sandbox>", mode="exec")
         
         # Initialize execution-specific resources
         self._call_log = {}
@@ -167,7 +276,7 @@ class CodeSandbox:
 
         local_vars: Dict[str, Any] = {}
         try:
-            exec(code, allowed_globals, local_vars)
+            exec(compiled_code, allowed_globals, local_vars)
             orchestrate_func = local_vars['orchestrate']
             if not asyncio.iscoroutinefunction(orchestrate_func):
                 raise ValueError("The 'orchestrate' function must be an async function.")
