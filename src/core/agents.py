@@ -15,6 +15,8 @@ class AgentResult:
     token_count: int = 0
     duration_ms: int = 0
 
+_prompt_cache: Dict[str, AgentResult] = {}
+
 async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> AgentResult:
     """
     Spawns a transient micro-agent of the requested type, processes the prompt, and returns the result.
@@ -24,6 +26,17 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         prompt: The task instruction or query.
         context_ids: Optional list of memory context IDs to retrieve and inject.
     """
+    cache_key = f"{agent_type}:{prompt}:{','.join(context_ids) if context_ids else ''}"
+    if cache_key in _prompt_cache:
+        # Clone to avoid mutable sharing
+        cached = _prompt_cache[cache_key]
+        return AgentResult(
+            text=cached.text,
+            metadata=dict(cached.metadata),
+            token_count=cached.token_count,
+            duration_ms=0
+        )
+
     start_time = time.time()
     
     # 1. Retrieve config
@@ -85,9 +98,13 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         
     duration_ms = int((time.time() - start_time) * 1000)
     
-    return AgentResult(
+    agent_result = AgentResult(
         text=response_text,
         metadata={"agent_type": agent_type, "model": expert_config.llm_config.model_name},
         token_count=token_count,
         duration_ms=duration_ms
     )
+    
+    _prompt_cache[cache_key] = agent_result
+    
+    return agent_result

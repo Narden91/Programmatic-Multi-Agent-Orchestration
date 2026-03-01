@@ -8,8 +8,6 @@ from fastapi import APIRouter, HTTPException
 from api.schemas import (
     QueryRequest,
     QueryResponse,
-    ModelsResponse,
-    ConfigResponse,
     HealthResponse,
 )
 from src.core.config import MoEConfig, SecretStr
@@ -32,24 +30,14 @@ async def health():
     return HealthResponse(status="ok", version="0.5.0")
 
 
-@router.get("/config", response_model=ConfigResponse)
-async def get_config():
-    has_env_key = bool(os.getenv("GROQ_API_KEY", "").strip())
-    return ConfigResponse(
-        has_env_api_key=has_env_key,
-        version="0.5.0",
-    )
-
-
-@router.get("/models", response_model=ModelsResponse)
-async def get_models():
-    return ModelsResponse(models=AVAILABLE_MODELS)
-
-
 @router.get("/init")
 async def get_init():
     """Combined config+models endpoint — one request instead of two."""
-    has_env_key = bool(os.getenv("GROQ_API_KEY", "").strip())
+    has_env_key = bool(
+        os.getenv("GROQ_API_KEY", "").strip() or 
+        os.getenv("OPENAI_API_KEY", "").strip() or 
+        os.getenv("ANTHROPIC_API_KEY", "").strip()
+    )
     return {
         "has_env_api_key": has_env_key,
         "version": "0.5.0",
@@ -59,15 +47,28 @@ async def get_init():
 
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
-    api_key = (req.api_key or os.getenv("GROQ_API_KEY", "")).strip()
-    if not api_key:
+    api_key_str = (req.api_key or "").strip()
+
+    config = MoEConfig()
+    
+    # If the user provides a key in the request, try to guess the provider
+    if api_key_str:
+        if api_key_str.startswith("sk-ant"):
+            config.anthropic_api_key = SecretStr(api_key_str)
+        elif api_key_str.startswith("sk-"):
+            config.openai_api_key = SecretStr(api_key_str)
+        else:
+            config.groq_api_key = SecretStr(api_key_str)
+
+    try:
+        config.validate()
+    except ValueError as e:
         raise HTTPException(
             status_code=400,
-            detail="No API key provided. Set GROQ_API_KEY environment variable or pass api_key in the request.",
+            detail=str(e),
         )
 
     try:
-        config = MoEConfig(groq_api_key=SecretStr(api_key))
         config.orchestrator_config.model_name = req.model
         for ec in config.expert_configs.values():
             ec.llm_config.model_name = req.model

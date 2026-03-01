@@ -23,15 +23,6 @@ class QueryResponse(BaseModel):
     sandbox_output: str = ""
 
 
-class ModelsResponse(BaseModel):
-    models: List[str]
-
-
-class ConfigResponse(BaseModel):
-    has_env_api_key: bool
-    version: str
-
-
 class HealthResponse(BaseModel):
     status: str
     version: str

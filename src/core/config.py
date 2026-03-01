@@ -156,10 +156,9 @@ class MoEConfig:
     
     def validate(self) -> bool:
         """Validate configuration"""
-        if not self.groq_api_key:
+        if not (self.groq_api_key or self.openai_api_key or self.anthropic_api_key):
             raise ValueError(
-                "GROQ_API_KEY is required. "
-                "Get your free key at https://console.groq.com/keys"
+                "At least one API key (GROQ_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY) is required."
             )
         
         if not self.expert_configs:

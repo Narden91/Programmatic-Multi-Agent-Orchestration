@@ -88,14 +88,21 @@ class EphemeralMemory:
                 } for r in results
             ]
         else:
-            # Fallback simple search
-            import math
-            def cosine_similarity(v1, v2):
-                dot = sum(a * b for a, b in zip(v1, v2))
-                norm1 = math.sqrt(sum(a * a for a in v1))
-                norm2 = math.sqrt(sum(b * b for b in v2))
-                if norm1 == 0 or norm2 == 0: return 0.0
-                return dot / (norm1 * norm2)
+            try:
+                import numpy as np
+                def cosine_similarity(v1, v2):
+                    v1_np, v2_np = np.array(v1), np.array(v2)
+                    norm1, norm2 = np.linalg.norm(v1_np), np.linalg.norm(v2_np)
+                    if norm1 == 0 or norm2 == 0: return 0.0
+                    return float(np.dot(v1_np, v2_np) / (norm1 * norm2))
+            except ImportError:
+                import math
+                def cosine_similarity(v1, v2):
+                    dot = sum(a * b for a, b in zip(v1, v2))
+                    norm1 = math.sqrt(sum(a * a for a in v1))
+                    norm2 = math.sqrt(sum(b * b for b in v2))
+                    if norm1 == 0 or norm2 == 0: return 0.0
+                    return dot / (norm1 * norm2)
                 
             scored = []
             for item in self._fallback_memory:

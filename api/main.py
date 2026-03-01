@@ -23,13 +23,17 @@ DOTENV_LOADED = load_dotenv(dotenv_path=_ENV_FILE, override=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    key_present = bool(os.getenv("GROQ_API_KEY", "").strip())
+    key_present = bool(
+        os.getenv("GROQ_API_KEY", "").strip() or 
+        os.getenv("OPENAI_API_KEY", "").strip() or 
+        os.getenv("ANTHROPIC_API_KEY", "").strip()
+    )
     logger.info("dotenv parse result: %s", DOTENV_LOADED)
     logger.info("dotenv loaded from %s  (file exists: %s)", _ENV_FILE, _ENV_FILE.exists())
-    logger.info("GROQ_API_KEY detected: %s", key_present)
+    logger.info("API_KEY detected: %s", key_present)
     if not key_present:
         logger.warning(
-            "No GROQ_API_KEY found. Create a .env file at %s with GROQ_API_KEY=<key>",
+            "No API_KEY found. Create a .env file at %s with GROQ_API_KEY=<key>",
             _ENV_FILE,
         )
     yield
