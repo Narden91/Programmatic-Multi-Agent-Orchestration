@@ -9,7 +9,7 @@ from ..utils.metrics import get_token_tracker
 from ..core.registry import OrchestrationRegistry
 from ..core.scoring import ScriptScorer
 from ..utils.tracing import get_tracer, TraceEvent, TraceKind
-from ..core.sandbox import CodeSandbox
+from ..core.sandbox import CodeSandbox, SandboxPolicy
 
 
 class OrchestratorAgent(BaseAgent):
@@ -105,10 +105,16 @@ class CodeExecutionAgent(AsyncBaseAgent):
     def __init__(
         self,
         timeout_seconds: int = 60,
+        isolate_process: bool = True,
+        sandbox_policy: Optional[SandboxPolicy] = None,
         script_bank: Optional[Any] = None,
     ):
         super().__init__("CodeExecutor")
-        self.sandbox = CodeSandbox(timeout_seconds=timeout_seconds)
+        self.sandbox = CodeSandbox(
+            timeout_seconds=timeout_seconds,
+            isolate_process=isolate_process,
+            policy=sandbox_policy,
+        )
         self.orchestration_registry = OrchestrationRegistry()
         self.scorer = ScriptScorer()
 
@@ -156,6 +162,10 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "expert_responses": execution_result["expert_responses"],
                 "trace_dna": execution_result.get("trace", []),
                 "sandbox_output": execution_result.get("sandbox_output", ""),
+                "metadata": {
+                    **state.get("metadata", {}),
+                    "sandbox_security": execution_result.get("security", {}),
+                },
                 "code_execution_error": "",
                 "code_execution_iterations": iterations + 1,
                 "execution_plan": plan.to_dict(),
@@ -186,6 +196,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "code_execution_error": str(e),
                 "code_execution_iterations": iterations + 1,
                 "execution_plan": plan.to_dict(),
+                "metadata": {
+                    **state.get("metadata", {}),
+                    "sandbox_security": {
+                        "error": str(e),
+                    },
+                },
                 "token_usage": get_token_tracker().summary(),
                 "reasoning_steps": [self._log_step(
                     action="Code Execution Failed",

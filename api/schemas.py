@@ -21,6 +21,7 @@ class QueryResponse(BaseModel):
     token_usage: Dict[str, Any]
     trace_dna: List[Dict[str, Any]] = []
     sandbox_output: str = ""
+    sandbox_security: Dict[str, Any] = {}
 
 
 class HealthResponse(BaseModel):

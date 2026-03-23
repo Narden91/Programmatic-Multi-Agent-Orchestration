@@ -4,6 +4,7 @@ from ..agents.orchestrator import OrchestratorAgent, CodeExecutionAgent
 from ..agents.registry import registry
 from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
+from ..core.sandbox import SandboxPolicy
 from ..utils.cache import ResponseCache
 from ..utils.memory import ConversationMemory
 
@@ -51,6 +52,13 @@ class MoEGraphBuilder:
         
         self.agents['code_executor'] = CodeExecutionAgent(
             timeout_seconds=self.config.request_timeout,
+            isolate_process=self.config.sandbox_isolate_process,
+            sandbox_policy=SandboxPolicy(
+                max_code_chars=self.config.sandbox_max_code_chars,
+                max_ast_nodes=self.config.sandbox_max_ast_nodes,
+                max_statements=self.config.sandbox_max_statements,
+                max_query_calls=self.config.sandbox_max_query_calls,
+            ),
         )
     
     def _should_retry_code(self, state: MoEState) -> str:

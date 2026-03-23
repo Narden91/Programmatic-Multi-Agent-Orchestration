@@ -1,9 +1,11 @@
 import ast
 import asyncio
 import logging
+import multiprocessing as mp
+import queue
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 from .agents import query_agent as real_query_agent, AgentResult
-from .memory import EphemeralMemory
 from .tracing import Tracer
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,33 @@ class SandboxSecurityError(Exception):
 
 class SandboxTimeoutError(Exception):
     """Raised when sandbox execution exceeds the configured timeout."""
+
+
+@dataclass(frozen=True)
+class SandboxPolicy:
+    """Execution policy limits used to constrain generated scripts."""
+
+    max_code_chars: int = 30_000
+    max_ast_nodes: int = 8_000
+    max_statements: int = 1_500
+    max_query_calls: int = 120
+
+    def to_dict(self) -> Dict[str, int]:
+        return {
+            "max_code_chars": self.max_code_chars,
+            "max_ast_nodes": self.max_ast_nodes,
+            "max_statements": self.max_statements,
+            "max_query_calls": self.max_query_calls,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, int]) -> "SandboxPolicy":
+        return cls(
+            max_code_chars=int(data.get("max_code_chars", cls.max_code_chars)),
+            max_ast_nodes=int(data.get("max_ast_nodes", cls.max_ast_nodes)),
+            max_statements=int(data.get("max_statements", cls.max_statements)),
+            max_query_calls=int(data.get("max_query_calls", cls.max_query_calls)),
+        )
 
 
 _SAFE_BUILTINS = {
@@ -164,12 +193,21 @@ class SpeculativeExecutionTransformer(ast.NodeTransformer):
 
 
 class CodeSandbox:
-    def __init__(self, timeout_seconds: int = 60):
+    def __init__(
+        self,
+        timeout_seconds: int = 60,
+        isolate_process: bool = True,
+        policy: Optional[SandboxPolicy] = None,
+    ):
         self.timeout_seconds = timeout_seconds
+        self.isolate_process = isolate_process
+        self.policy = policy or SandboxPolicy()
         # These will be set per execution
         self.tracer: Optional[Tracer] = None
-        self.memory: Optional[EphemeralMemory] = None
+        self.memory: Optional[Any] = None
         self._call_log: Dict[str, str] = {}
+        # Compatibility surface used by tests and introspection
+        self.allowed_globals = {"__builtins__": dict(_SAFE_BUILTINS)}
         
     def _make_tracked_query_agent(self):
         """Creates a sandboxed version of query_agent that is traced and logs results."""
@@ -195,10 +233,18 @@ class CodeSandbox:
 
     def _make_tracked_memory(self):
         """Creates sandboxed memory functions, traced."""
+        def _ensure_memory() -> Any:
+            if self.memory is None:
+                from .memory import EphemeralMemory
+
+                self.memory = EphemeralMemory()
+            return self.memory
+
         async def _store(key: str, text: str, metadata: dict = None) -> str:
             span = self.tracer.start_span("memory_store", "memory", {"key": key, "text_len": len(text)})
             try:
-                res = await self.memory.store(key, text, metadata)
+                mem = _ensure_memory()
+                res = await mem.store(key, text, metadata)
                 self.tracer.end_span(span, outputs={"key": res})
                 return res
             except Exception as e:
@@ -208,7 +254,8 @@ class CodeSandbox:
         async def _search(query: str, top_k: int = 5) -> List[dict]:
             span = self.tracer.start_span("memory_search", "memory", {"query": query, "top_k": top_k})
             try:
-                res = await self.memory.search(query, top_k)
+                mem = _ensure_memory()
+                res = await mem.search(query, top_k)
                 self.tracer.end_span(span, outputs={"results_count": len(res)})
                 return res
             except Exception as e:
@@ -218,7 +265,8 @@ class CodeSandbox:
         async def _compress(query: str, top_k: int = 5) -> str:
             span = self.tracer.start_span("memory_compress", "memory", {"query": query, "top_k": top_k})
             try:
-                res = await self.memory.compress_context(query, top_k)
+                mem = _ensure_memory()
+                res = await mem.compress_context(query, top_k)
                 self.tracer.end_span(span, outputs={"compressed_len": len(res)})
                 return res
             except Exception as e:
@@ -228,10 +276,61 @@ class CodeSandbox:
         return _store, _search, _compress
 
     @staticmethod
-    def validate_code(code: str) -> ast.Module:
+    def _count_query_calls(tree: ast.AST) -> int:
+        count = 0
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "query_agent"
+            ):
+                count += 1
+        return count
+
+    @staticmethod
+    def _collect_code_metrics(tree: ast.AST) -> Dict[str, int]:
+        ast_nodes = 0
+        statements = 0
+        for node in ast.walk(tree):
+            ast_nodes += 1
+            if isinstance(node, ast.stmt):
+                statements += 1
+        return {
+            "ast_nodes": ast_nodes,
+            "statements": statements,
+            "query_calls": CodeSandbox._count_query_calls(tree),
+        }
+
+    @staticmethod
+    def validate_code(code: str, policy: Optional[SandboxPolicy] = None) -> ast.Module:
+        active_policy = policy or SandboxPolicy()
+        if len(code) > active_policy.max_code_chars:
+            raise SandboxSecurityError(
+                f"Code size ({len(code)} chars) exceeds policy limit ({active_policy.max_code_chars})."
+            )
+
         tree = ast.parse(code)
+        metrics = CodeSandbox._collect_code_metrics(tree)
+
+        if metrics["ast_nodes"] > active_policy.max_ast_nodes:
+            raise SandboxSecurityError(
+                f"AST size ({metrics['ast_nodes']}) exceeds policy limit ({active_policy.max_ast_nodes})."
+            )
+        if metrics["statements"] > active_policy.max_statements:
+            raise SandboxSecurityError(
+                f"Statement count ({metrics['statements']}) exceeds policy limit ({active_policy.max_statements})."
+            )
+        if metrics["query_calls"] > active_policy.max_query_calls:
+            raise SandboxSecurityError(
+                f"query_agent calls ({metrics['query_calls']}) exceed policy limit ({active_policy.max_query_calls})."
+            )
+
         has_orchestrate = False
         for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                raise SandboxSecurityError(
+                    f"Import statements are not allowed (line {getattr(node, 'lineno', '?')})."
+                )
             if isinstance(node, _BLOCKED_AST_NODES):
                 raise SandboxSecurityError(f"AST node {type(node).__name__} not allowed (line {getattr(node, 'lineno', '?')})")
             if isinstance(node, ast.Attribute) and node.attr in _BLOCKED_ATTRIBUTES:
@@ -244,8 +343,52 @@ class CodeSandbox:
             raise ValueError("The generated script must define an 'async def orchestrate():' function.")
         return tree
 
-    async def execute(self, code: str) -> Dict[str, Any]:
-        tree = self.validate_code(code)
+    def _execute_in_subprocess(self, code: str) -> Dict[str, Any]:
+        ctx = mp.get_context("spawn")
+        out_q: Any = ctx.Queue(maxsize=1)
+        proc = ctx.Process(
+            target=_sandbox_worker_main,
+            args=(code, self.timeout_seconds, self.policy.to_dict(), out_q),
+        )
+        proc.start()
+        proc.join(self.timeout_seconds + 2)
+
+        if proc.is_alive():
+            proc.terminate()
+            proc.join(2)
+            raise SandboxTimeoutError(
+                f"Orchestration script exceeded the {self.timeout_seconds}s timeout."
+            )
+
+        try:
+            payload = out_q.get_nowait()
+        except queue.Empty:
+            if proc.exitcode and proc.exitcode != 0:
+                raise RuntimeError(f"Sandbox worker crashed with exit code {proc.exitcode}.")
+            raise RuntimeError("Sandbox worker returned no result.")
+        finally:
+            out_q.close()
+
+        if payload.get("ok"):
+            result = payload["result"]
+            security = result.get("security", {})
+            security["isolation_mode"] = "process"
+            security["process_isolated"] = True
+            result["security"] = security
+            return result
+
+        error_type = payload.get("error_type", "RuntimeError")
+        error = payload.get("error", "Sandbox worker execution failed.")
+
+        if error_type == "SandboxSecurityError":
+            raise SandboxSecurityError(error)
+        if error_type == "SandboxTimeoutError":
+            raise SandboxTimeoutError(error)
+        raise RuntimeError(error)
+
+    async def _execute_local(self, code: str) -> Dict[str, Any]:
+        tree = self.validate_code(code, self.policy)
+        metrics = self._collect_code_metrics(tree)
         
         # Zero-Latency Speculative Execution Engine Optimization
         tree = SpeculativeExecutionTransformer().visit(tree)
@@ -257,7 +400,7 @@ class CodeSandbox:
         # Initialize execution-specific resources
         self._call_log = {}
         self.tracer = Tracer()
-        self.memory = EphemeralMemory()
+        self.memory = None
         sandbox_printer = _SandboxPrinter()
         
         store_fn, search_fn, compress_fn = self._make_tracked_memory()
@@ -288,7 +431,13 @@ class CodeSandbox:
                 "selected_experts": list(self._call_log.keys()),
                 "expert_responses": dict(self._call_log),
                 "trace": self.tracer.get_trace(),
-                "sandbox_output": sandbox_printer.output
+                "sandbox_output": sandbox_printer.output,
+                "security": {
+                    "isolation_mode": "in-process",
+                    "process_isolated": False,
+                    "policy": self.policy.to_dict(),
+                    "observed": metrics,
+                },
             }
         except asyncio.TimeoutError:
             logger.error(f"Sandbox execution timed out after {self.timeout_seconds}s")
@@ -299,3 +448,31 @@ class CodeSandbox:
         finally:
             if self.memory:
                 self.memory.cleanup()
+
+    async def execute(self, code: str) -> Dict[str, Any]:
+        if self.isolate_process:
+            return await asyncio.to_thread(self._execute_in_subprocess, code)
+        return await self._execute_local(code)
+
+
+def _sandbox_worker_main(
+    code: str,
+    timeout_seconds: int,
+    policy_data: Dict[str, int],
+    out_q: Any,
+) -> None:
+    """Run untrusted orchestration in an isolated worker process."""
+    sandbox = CodeSandbox(
+        timeout_seconds=timeout_seconds,
+        isolate_process=False,
+        policy=SandboxPolicy.from_dict(policy_data),
+    )
+    try:
+        result = asyncio.run(sandbox._execute_local(code))
+        out_q.put({"ok": True, "result": result})
+    except Exception as e:  # pragma: no cover - subprocess transport path
+        out_q.put({
+            "ok": False,
+            "error_type": e.__class__.__name__,
+            "error": str(e),
+        })

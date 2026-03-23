@@ -101,6 +101,7 @@ async def run_query(req: QueryRequest):
             token_usage=result.get("token_usage", {}),
             trace_dna=result.get("trace_dna", []),
             sandbox_output=result.get("sandbox_output", ""),
+            sandbox_security=(result.get("metadata", {}) or {}).get("sandbox_security", {}),
         )
     except asyncio.TimeoutError:
         raise HTTPException(
