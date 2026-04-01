@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { motion } from 'framer-motion'
 import { Brain, Database, Server, CheckCircle2, XCircle, AlertCircle, Clock } from 'lucide-react'
 
@@ -21,10 +22,10 @@ export default function VisualDNA({ trace }) {
         )
     }
 
-    // Find overall duration
-    const start = trace[0]?.start_time || 0
-    const end = trace[trace.length - 1]?.end_time || start
-    const totalDuration = end > start ? (end - start) * 1000 : 0
+    const totalDuration = useMemo(
+        () => trace.reduce((sum, span) => sum + (Number(span.durationMs) || 0), 0),
+        [trace]
+    )
 
     return (
         <div className="space-y-4">

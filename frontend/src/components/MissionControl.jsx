@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { Code2, Workflow, BarChart3, Users } from 'lucide-react'
 import CodePanel from './CodePanel'
 import FlowGraph from './FlowGraph'
-import TokenChart from './TokenChart'
 import ExpertCards from './ExpertCards'
 import VisualDNA from './VisualDNA'
+
+const TokenChart = lazy(() => import('./TokenChart'))
 
 const tabs = [
   { id: 'code', label: 'Code', icon: Code2 },
@@ -65,11 +66,12 @@ export default function MissionControl({ data, id }) {
         {activeTab === 'flow' && (
           <FlowGraph
             experts={data.selected_experts}
-            code={data.generated_code}
           />
         )}
         {activeTab === 'tokens' && (
-          <TokenChart tokenUsage={data.token_usage} />
+          <Suspense fallback={<div className="text-center py-8 text-text-muted text-xs">Loading token chart...</div>}>
+            <TokenChart tokenUsage={data.token_usage} />
+          </Suspense>
         )}
         {activeTab === 'experts' && (
           <ExpertCards

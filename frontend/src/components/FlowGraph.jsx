@@ -107,7 +107,7 @@ function calculateEdgePoints(x1, y1, x2, y2, radius) {
   }
 }
 
-export default function FlowGraph({ experts = [], code }) {
+export default function FlowGraph({ experts = [] }) {
   if (!experts.length) {
     return (
       <div className="text-center py-8 text-text-muted text-xs">
