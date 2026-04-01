@@ -23,7 +23,7 @@ export async function sendQuery(query, apiKey, model) {
  * Falls back to separate calls if the endpoint is unavailable.
  * Implements exponential backoff to handle slow Uvicorn startup
  */
-export async function getInit(retries = 5, delay = 1000) {
+export async function getInit(retries = 15, delay = 1000) {
   try {
     const res = await fetch(`${API_BASE}/init`);
     if (!res.ok) throw new Error('Failed to fetch init');

@@ -300,24 +300,29 @@ context = mem.format_context()  # inject into prompts for follow-up awareness
 
 ---
 
-## 🤖 Supported Models
-
 ### Groq (default)
 
 | Model | Notes |
 |-------|-------|
 | `llama-3.3-70b-versatile` | Default for orchestrator & experts |
-| `meta-llama/llama-4-maverick-17b-128e-instruct` | Fast, cost-effective |
-| `qwen/qwen3-32b` | Strong reasoning |
-| `moonshotai/kimi-k2-instruct-0905` | Multi-lingual |
+| `llama-3.1-70b-versatile` | High context, stable |
+| `llama3-8b-8192` | Extremely fast |
+| `mixtral-8x7b-32768` | Balanced performance |
+| `gemma2-9b-it` | Efficient, high quality |
 
 ### OpenAI (optional, requires `pip install -e ".[openai]"`)
 
-Any model supported by `langchain-openai` (e.g. `gpt-4o`, `gpt-4o-mini`).
+| Model | Notes |
+|-------|-------|
+| `gpt-4o` | State of the art multimodal |
+| `gpt-4o-mini` | Super fast and cheap |
 
 ### Anthropic (optional, requires `pip install -e ".[anthropic]"`)
 
-Any model supported by `langchain-anthropic` (e.g. `claude-sonnet-4-20250514`).
+| Model | Notes |
+|-------|-------|
+| `claude-3-5-sonnet-20240620` | Highest intelligence |
+| `claude-3-5-haiku-20241022` | Fastest Claude model |
 
 ### Custom Providers
 

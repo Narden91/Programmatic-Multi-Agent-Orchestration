@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
+from src.utils.embeddings import get_embedding_model
 
 logger = logging.getLogger("moe.api")
 
@@ -36,6 +37,11 @@ async def lifespan(app: FastAPI):
             "No API_KEY found. Create a .env file at %s with GROQ_API_KEY=<key>",
             _ENV_FILE,
         )
+    
+    # Pre-load embedding model to prevent 504 timeouts on first request
+    logger.info("Pre-loading embedding model...")
+    get_embedding_model()
+    logger.info("Embedding model loaded.")
     yield
 
 

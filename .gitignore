@@ -44,6 +44,7 @@ htmlcov/
 
 # Agent
 .agent/
+.claude/*
 .github/skills
 
 # V3 Architecture state

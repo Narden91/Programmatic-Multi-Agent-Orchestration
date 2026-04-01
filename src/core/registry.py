@@ -3,13 +3,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-try:
-    from sentence_transformers import SentenceTransformer
-    import logging
-    logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
-    logging.getLogger("transformers").setLevel(logging.ERROR)
-except ImportError:
-    SentenceTransformer = None
+from src.utils.embeddings import get_embedding_model
 
 class OrchestrationRegistry:
     """
@@ -21,10 +15,7 @@ class OrchestrationRegistry:
     def __init__(self, db_path: str = ".moe_registry.db", model_name: str = "all-MiniLM-L6-v2"):
         self.db_path = Path(db_path)
         self._init_db()
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            self.model = SentenceTransformer(model_name) if SentenceTransformer else None
+        self.model = get_embedding_model(model_name)
         
     def _init_db(self):
         """Initialize the SQLite database schema for the registry."""
