@@ -30,7 +30,7 @@ class ScriptScorer:
         try:
             eval_result = await query_agent("critical-thinker", evaluation_prompt)
             quality_score = self._extract_score(eval_result.text)
-        except Exception as e:
+        except Exception:
             # Fallback score if critical-thinker fails
             quality_score = 0.5
             
@@ -66,5 +66,3 @@ class ScriptScorer:
             except ValueError:
                 pass
         return 0.5 # Default middle ground
-
-grader = ScriptScorer()

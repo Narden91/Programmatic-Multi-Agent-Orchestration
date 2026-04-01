@@ -5,7 +5,7 @@ import multiprocessing as mp
 import queue
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
-from .agents import query_agent as real_query_agent, AgentResult
+from .agents import query_agent as real_query_agent
 from .tracing import Tracer
 
 logger = logging.getLogger(__name__)
@@ -276,33 +276,31 @@ class CodeSandbox:
         return _store, _search, _compress
 
     @staticmethod
-    def _count_query_calls(tree: ast.AST) -> int:
-        count = 0
+    def _collect_code_metrics(tree: ast.AST) -> Dict[str, int]:
+        ast_nodes = 0
+        statements = 0
+        query_calls = 0
         for node in ast.walk(tree):
+            ast_nodes += 1
+            if isinstance(node, ast.stmt):
+                statements += 1
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)
                 and node.func.id == "query_agent"
             ):
-                count += 1
-        return count
-
-    @staticmethod
-    def _collect_code_metrics(tree: ast.AST) -> Dict[str, int]:
-        ast_nodes = 0
-        statements = 0
-        for node in ast.walk(tree):
-            ast_nodes += 1
-            if isinstance(node, ast.stmt):
-                statements += 1
+                query_calls += 1
         return {
             "ast_nodes": ast_nodes,
             "statements": statements,
-            "query_calls": CodeSandbox._count_query_calls(tree),
+            "query_calls": query_calls,
         }
 
     @staticmethod
-    def validate_code(code: str, policy: Optional[SandboxPolicy] = None) -> ast.Module:
+    def _validate_and_collect(
+        code: str,
+        policy: Optional[SandboxPolicy] = None,
+    ) -> tuple[ast.Module, Dict[str, int]]:
         active_policy = policy or SandboxPolicy()
         if len(code) > active_policy.max_code_chars:
             raise SandboxSecurityError(
@@ -341,6 +339,12 @@ class CodeSandbox:
                 has_orchestrate = True
         if not has_orchestrate:
             raise ValueError("The generated script must define an 'async def orchestrate():' function.")
+
+        return tree, metrics
+
+    @staticmethod
+    def validate_code(code: str, policy: Optional[SandboxPolicy] = None) -> ast.Module:
+        tree, _ = CodeSandbox._validate_and_collect(code, policy)
         return tree
 
     def _execute_in_subprocess(self, code: str) -> Dict[str, Any]:
@@ -387,8 +391,7 @@ class CodeSandbox:
         raise RuntimeError(error)
 
     async def _execute_local(self, code: str) -> Dict[str, Any]:
-        tree = self.validate_code(code, self.policy)
-        metrics = self._collect_code_metrics(tree)
+        tree, metrics = self._validate_and_collect(code, self.policy)
         
         # Zero-Latency Speculative Execution Engine Optimization
         tree = SpeculativeExecutionTransformer().visit(tree)
