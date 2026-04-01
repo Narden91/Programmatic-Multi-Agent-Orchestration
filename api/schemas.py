@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 class QueryRequest(BaseModel):
     query: str
     api_key: Optional[str] = None
-    model: str = "meta-llama/llama-4-maverick-17b-128e-instruct"
+    model: str = "llama-3.3-70b-versatile"
 
 
 class QueryResponse(BaseModel):

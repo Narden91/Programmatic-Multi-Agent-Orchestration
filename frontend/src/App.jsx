@@ -13,7 +13,7 @@ const initialState = {
   messages: [],
   config: {
     apiKey: '',
-    model: 'meta-llama/llama-4-maverick-17b-128e-instruct',
+    model: 'llama-3.3-70b-versatile',
     hasEnvKey: false,
   },
   isLoading: false,

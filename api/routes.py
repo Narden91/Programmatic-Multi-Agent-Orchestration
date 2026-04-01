@@ -17,11 +17,15 @@ from src.graph.builder import MoEGraphBuilder
 router = APIRouter()
 
 AVAILABLE_MODELS = [
-    "meta-llama/llama-4-maverick-17b-128e-instruct",
     "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
     "llama3-8b-8192",
-    "qwen/qwen3-32b",
-    "moonshotai/kimi-k2-instruct-0905",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "claude-3-5-sonnet-20240620",
+    "claude-3-5-haiku-20241022",
 ]
 
 
