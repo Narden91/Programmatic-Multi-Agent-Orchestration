@@ -112,7 +112,7 @@ def analyze_code(code: str) -> ExecutionPlan:
             plan.calls.append(
                 ExpertCall(
                     expert_type=expert_type,
-                    function_name=node.func.id,
+                    function_name="query_agent",
                     line=getattr(node, "lineno", 0),
                     is_parallel=False,
                     group_id=None,
@@ -156,7 +156,7 @@ def _find_expert_calls(node: ast.AST) -> List[ExpertCall]:
             calls.append(
                 ExpertCall(
                     expert_type=expert_type,
-                    function_name=child.func.id,
+                    function_name="query_agent",
                     line=getattr(child, "lineno", 0),
                 )
             )

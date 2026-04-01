@@ -1,11 +1,10 @@
 """
 Response caching utility for MoE system
 """
+from collections import OrderedDict
 import hashlib
-import json
 import time
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
 
 
 class ResponseCache:
@@ -23,6 +22,7 @@ class ResponseCache:
         self.max_size = max_size
         self.cache: Dict[str, Dict[str, Any]] = {}
         self.access_times: Dict[str, float] = {}
+        self._lru_order: OrderedDict[str, None] = OrderedDict()
     
     def _generate_key(self, query: str, expert_type: str) -> str:
         """Generate cache key from query and expert type"""
@@ -51,11 +51,15 @@ class ResponseCache:
         # Check if expired
         if time.time() - cache_time > self.ttl_seconds:
             del self.cache[key]
-            del self.access_times[key]
+            self.access_times.pop(key, None)
+            self._lru_order.pop(key, None)
             return None
         
         # Update access time for LRU
-        self.access_times[key] = time.time()
+        now = time.time()
+        self.access_times[key] = now
+        self._lru_order.pop(key, None)
+        self._lru_order[key] = None
         
         return cached_item['response']
     
@@ -69,25 +73,29 @@ class ResponseCache:
             response: The LLM response to cache
         """
         key = self._generate_key(query, expert_type)
+        now = time.time()
         
         # Evict least recently used if at max size
         if len(self.cache) >= self.max_size and key not in self.cache:
-            lru_key = min(self.access_times.items(), key=lambda x: x[1])[0]
+            lru_key, _ = self._lru_order.popitem(last=False)
             del self.cache[lru_key]
-            del self.access_times[lru_key]
+            self.access_times.pop(lru_key, None)
         
         self.cache[key] = {
             'response': response,
-            'timestamp': time.time(),
+            'timestamp': now,
             'query': query,
             'expert_type': expert_type
         }
-        self.access_times[key] = time.time()
+        self.access_times[key] = now
+        self._lru_order.pop(key, None)
+        self._lru_order[key] = None
     
     def clear(self) -> None:
         """Clear all cached responses"""
         self.cache.clear()
         self.access_times.clear()
+        self._lru_order.clear()
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""

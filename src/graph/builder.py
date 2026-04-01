@@ -5,7 +5,6 @@ from ..agents.registry import registry
 from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
 from ..core.sandbox import SandboxPolicy
-from ..utils.cache import ResponseCache
 from ..utils.memory import ConversationMemory
 
 
@@ -20,18 +19,8 @@ class MoEGraphBuilder:
         """Initialize graph builder"""
         self.config = config
         self.agents = {}
-        self.cache = None
         self.memory = memory
-        self._initialize_cache()
         self._initialize_agents()
-    
-    def _initialize_cache(self):
-        """Initialize response cache if enabled"""
-        if self.config.enable_cache:
-            self.cache = ResponseCache(
-                ttl_seconds=self.config.cache_ttl,
-                max_size=self.config.cache_max_size
-            )
     
     def _initialize_agents(self):
         """Initialize all agent instances"""
