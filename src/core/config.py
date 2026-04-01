@@ -101,12 +101,17 @@ class MoEConfig:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")
     
-    request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT", "60")))
+    request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT", "120")))
     max_retries: int = field(default_factory=lambda: int(os.getenv("MAX_RETRIES", "3")))
     retry_delay: int = field(default_factory=lambda: int(os.getenv("RETRY_DELAY", "1")))
 
     sandbox_isolate_process: bool = field(
-        default_factory=lambda: os.getenv("SANDBOX_ISOLATE_PROCESS", "true").lower() == "true"
+        default_factory=lambda: os.getenv(
+            "SANDBOX_ISOLATE_PROCESS",
+            # Windows spawn-based multiprocessing is too slow for interactive use;
+            # default to in-process execution unless explicitly overridden.
+            "false" if os.name == "nt" else "true",
+        ).lower() == "true"
     )
     sandbox_max_code_chars: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_CODE_CHARS", "30000")))
     sandbox_max_ast_nodes: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_AST_NODES", "8000")))

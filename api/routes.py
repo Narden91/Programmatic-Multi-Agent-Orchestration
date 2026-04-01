@@ -2,8 +2,12 @@
 
 import os
 import asyncio
+import logging
+import traceback
 
 from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger("moe.routes")
 
 from api.schemas import (
     QueryRequest,
@@ -113,4 +117,6 @@ async def run_query(req: QueryRequest):
             detail="Request timed out. Try a shorter query or increase REQUEST_TIMEOUT.",
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Query failed: %s\n%s", e, traceback.format_exc())
+        detail = str(e) or f"{type(e).__name__} (no message)"
+        raise HTTPException(status_code=500, detail=detail)

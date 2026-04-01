@@ -26,7 +26,7 @@ class OrchestratorAgent(BaseAgent):
         self.prompts = OrchestratorPrompts()
         self.orchestration_registry = OrchestrationRegistry()
     
-    def execute(self, state: MoEState) -> Dict[str, Any]:
+    async def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
         code_failure = state.get('code_execution_error')
         previous_code = state.get('generated_code', '')
@@ -56,18 +56,18 @@ class OrchestratorAgent(BaseAgent):
                 few_shot_examples=few_shot or None,
                 conversation_context=conversation_context,
             )
-        
+
         # Trace: orchestrator start / retry
         _kind = TraceKind.ORCHESTRATOR_RETRY if code_failure else TraceKind.ORCHESTRATOR_START
-        get_tracer().emit_sync(TraceEvent(
+        await get_tracer().emit(TraceEvent(
             kind=_kind.value, agent=self.name,
             data={"query_len": len(query), "is_retry": bool(code_failure), "few_shot": len(few_shot)},
         ))
 
-        response = self.invoke_with_retry(prompt)
+        response = await self.ainvoke_with_retry(prompt)
         generated_code = self._extract_code(response.content)
 
-        get_tracer().emit_sync(TraceEvent(
+        await get_tracer().emit(TraceEvent(
             kind=TraceKind.ORCHESTRATOR_CODE_GENERATED.value, agent=self.name,
             data={"code_length": len(generated_code)},
         ))
