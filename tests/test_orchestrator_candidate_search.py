@@ -541,3 +541,144 @@ async def orchestrate():
 
     assert fragmented_details["atomization_cost"] > compact_details["atomization_cost"]
     assert compact_score > fragmented_score
+
+
+def test_graph_prior_rewards_candidates_matching_retrieved_structure(monkeypatch):
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda *args, **kwargs: DummyRegistry([]),
+    )
+
+    agent = OrchestratorAgent(
+        llm_provider=StubLLM(["""```python
+async def orchestrate():
+    return 'ok'
+```"""]),
+        available_experts=["technical", "analytical", "creative"],
+        candidate_count=1,
+    )
+
+    neighborhood_rows = [
+        {
+            "seed": {
+                "agent_type": "analytical",
+                "similarity": 0.97,
+            },
+            "neighbors": [{"atom_id": "n-1"}],
+            "edges": [{"source_atom_id": "n-0", "target_atom_id": "n-1", "edge_type": "dependency"}],
+        }
+    ]
+    plan_rows = [
+        {
+            "expert_type": "analytical",
+            "is_parallel": True,
+            "group_id": 1,
+            "similarity": 0.95,
+        }
+    ]
+
+    matching_candidate = """
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    analytical_task = query_agent('analytical', 'Compare alternatives')
+    technical_summary, analytical_summary = await asyncio.gather(technical_task, analytical_task)
+    return technical_summary.text + analytical_summary.text
+"""
+    mismatching_candidate = """
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    creative_task = query_agent('creative', 'Offer an analogy')
+    technical_summary, creative_summary = await asyncio.gather(technical_task, creative_task)
+    return technical_summary.text + creative_summary.text
+"""
+
+    matching_score, matching_details = agent._score_candidate(
+        matching_candidate,
+        [],
+        neighborhood_rows=neighborhood_rows,
+        plan_rows=plan_rows,
+    )
+    mismatching_score, mismatching_details = agent._score_candidate(
+        mismatching_candidate,
+        [],
+        neighborhood_rows=neighborhood_rows,
+        plan_rows=plan_rows,
+    )
+
+    assert matching_details["graph_prior"] > mismatching_details["graph_prior"]
+    assert matching_details["graph_motif_expert_coverage"] == 1.0
+    assert mismatching_details["graph_neighborhood_expert_coverage"] == 0.0
+    assert matching_score > mismatching_score
+
+
+@pytest.mark.asyncio
+async def test_candidate_search_uses_graph_prior_in_selection(monkeypatch):
+    registry = DummyRegistry(rows=[])
+    registry.neighborhood_rows = [
+        {
+            "seed": {
+                "task_description": "Compare system designs",
+                "agent_type": "analytical",
+                "atom_id": "dep-0",
+                "similarity": 0.97,
+                "payload": {"atom_id": "dep-0", "text": "Compare alternatives before synthesis."},
+            },
+            "neighbors": [
+                {
+                    "atom_id": "dep-1",
+                    "payload": {"atom_id": "dep-1", "text": "Preserve dependency order."},
+                }
+            ],
+            "edges": [
+                {"source_atom_id": "dep-0", "target_atom_id": "dep-1", "edge_type": "dependency"}
+            ],
+        }
+    ]
+    registry.plan_rows = [
+        {
+            "script_id": 1,
+            "motif_index": 0,
+            "task_description": "Compare system designs",
+            "motif_text": "parallel group 1 analytical via query_agent",
+            "expert_type": "analytical",
+            "is_parallel": True,
+            "group_id": 1,
+            "similarity": 0.96,
+        }
+    ]
+
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda *args, **kwargs: registry,
+    )
+
+    candidate_a = """```python
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    creative_task = query_agent('creative', 'Offer an analogy')
+    technical_summary, creative_summary = await asyncio.gather(technical_task, creative_task)
+    return technical_summary.text + creative_summary.text
+```"""
+    candidate_b = """```python
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    analytical_task = query_agent('analytical', 'Compare alternatives')
+    technical_summary, analytical_summary = await asyncio.gather(technical_task, analytical_task)
+    return technical_summary.text + analytical_summary.text
+```"""
+
+    llm = StubLLM([candidate_a, candidate_b])
+    agent = OrchestratorAgent(
+        llm_provider=llm,
+        available_experts=["technical", "analytical", "creative"],
+        candidate_count=2,
+        atom_few_shot_count=2,
+    )
+
+    state = create_initial_state("Compare two system designs")
+    result = await agent.execute(state)
+
+    assert "analytical" in result["generated_code"]
+    selection = result["reasoning_steps"][0]["details"]["selection"]
+    assert selection["selected_features"]["graph_prior"] > 0.2
+    assert selection["selected_features"]["graph_motif_expert_coverage"] == 1.0

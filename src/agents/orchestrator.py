@@ -312,6 +312,8 @@ class OrchestratorAgent(BaseAgent):
                 prompt=prompt,
                 similar_rows=similar_rows,
                 candidate_modes=candidate_modes,
+                neighborhood_rows=neighborhood_rows,
+                plan_rows=plan_rows,
             )
             await get_tracer().emit(TraceEvent(
                 kind=TraceKind.CUSTOM.value,
@@ -402,6 +404,8 @@ class OrchestratorAgent(BaseAgent):
         prompt: str,
         similar_rows: List[Dict[str, Any]],
         candidate_modes: List[_CandidateMode],
+        neighborhood_rows: List[Dict[str, Any]],
+        plan_rows: List[Dict[str, Any]],
     ) -> tuple[str, Dict[str, Any]]:
         """Generate multiple candidate scripts and select the best one heuristically."""
         modes = candidate_modes or [_CandidateMode(
@@ -435,12 +439,22 @@ class OrchestratorAgent(BaseAgent):
         pruned_candidate_count = 0
         best_score = float("-inf")
         for code, mode in unique_candidates.items():
-            candidate_upper_bound = self._candidate_upper_bound(code, mode)
+            candidate_upper_bound = self._candidate_upper_bound(
+                code,
+                mode,
+                neighborhood_rows,
+                plan_rows,
+            )
             if scored and candidate_upper_bound < best_score - 1.0:
                 pruned_candidate_count += 1
                 continue
 
-            score, details = self._score_candidate(code, similar_rows)
+            score, details = self._score_candidate(
+                code,
+                similar_rows,
+                neighborhood_rows=neighborhood_rows,
+                plan_rows=plan_rows,
+            )
             details.update({
                 "candidate_mode": mode.name,
                 "candidate_mode_uses_neighborhood": mode.uses_neighborhood,
@@ -482,8 +496,14 @@ class OrchestratorAgent(BaseAgent):
             "selected_features": selected.details,
         }
 
-    @staticmethod
-    def _candidate_upper_bound(code: str, mode: _CandidateMode) -> float:
+    def _candidate_upper_bound(
+        self,
+        code: str,
+        mode: _CandidateMode,
+        neighborhood_rows: Optional[List[Dict[str, Any]]] = None,
+        plan_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> float:
+        plan = analyze_code(code)
         upper_bound = 0.0
 
         if "async def orchestrate" in code:
@@ -503,8 +523,11 @@ class OrchestratorAgent(BaseAgent):
         if len(code) > 12_000:
             upper_bound -= (len(code) - 12_000) / 4_000
 
+        graph_prior, _ = self._graph_prior(plan, neighborhood_rows or [], plan_rows or [])
+        upper_bound += graph_prior
+
         if mode.uses_neighborhood or mode.uses_plan_motif:
-            upper_bound += 0.25
+            upper_bound += 0.10
 
         return upper_bound
 
@@ -525,8 +548,12 @@ class OrchestratorAgent(BaseAgent):
         self,
         code: str,
         similar_rows: List[Dict[str, Any]],
+        neighborhood_rows: Optional[List[Dict[str, Any]]] = None,
+        plan_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> tuple[float, Dict[str, Any]]:
         """Score a candidate orchestration script using lightweight static heuristics."""
+        neighborhood_rows = neighborhood_rows or []
+        plan_rows = plan_rows or []
         plan = analyze_code(code)
         call_count = len(plan.calls)
         expert_count = len(plan.experts_used)
@@ -560,6 +587,9 @@ class OrchestratorAgent(BaseAgent):
         atomization_cost = self._estimate_atomization_cost(plan, code_len)
         score -= atomization_cost
 
+        graph_prior, graph_details = self._graph_prior(plan, neighborhood_rows, plan_rows)
+        score += graph_prior
+
         if code_len > 12_000:
             score -= (code_len - 12_000) / 4_000
 
@@ -581,7 +611,9 @@ class OrchestratorAgent(BaseAgent):
             "parallel_groups": parallel_groups,
             "code_length": code_len,
             "atomization_cost": atomization_cost,
+            "graph_prior": round(graph_prior, 4),
             "registry_prior": round(prior_boost, 4),
+            **graph_details,
             **prior_details,
         }
 
@@ -654,6 +686,97 @@ class OrchestratorAgent(BaseAgent):
             richness = max(richness, 0.5)
 
         return richness
+
+    @staticmethod
+    def _coverage_score(candidate_items: set[Any], expected_items: set[Any]) -> float:
+        if not expected_items:
+            return 0.0
+        return len(candidate_items & expected_items) / len(expected_items)
+
+    def _graph_prior(
+        self,
+        plan: Any,
+        neighborhood_rows: List[Dict[str, Any]],
+        plan_rows: List[Dict[str, Any]],
+    ) -> tuple[float, Dict[str, Any]]:
+        default = {
+            "graph_similarity": 0.0,
+            "graph_neighborhood_expert_coverage": 0.0,
+            "graph_dependency_fit": 0.0,
+            "graph_motif_expert_coverage": 0.0,
+            "graph_motif_parallel_alignment": 0.0,
+        }
+        if not neighborhood_rows and not plan_rows:
+            return 0.0, default
+
+        target_experts = set(getattr(plan, "experts_used", []) or [])
+
+        neighborhood_experts = {
+            str(((row.get("seed") or {}).get("agent_type") or "")).strip()
+            for row in neighborhood_rows
+            if str(((row.get("seed") or {}).get("agent_type") or "")).strip()
+        }
+        neighborhood_coverage = self._coverage_score(target_experts, neighborhood_experts)
+
+        dependency_targets = sum(
+            max(
+                len(row.get("edges") or []),
+                len(row.get("neighbors") or []),
+                1,
+            )
+            for row in neighborhood_rows
+        )
+        dependency_fit = 0.0
+        if dependency_targets > 0:
+            dependency_fit = min(len(getattr(plan, "calls", []) or []), dependency_targets + len(neighborhood_experts))
+            dependency_fit /= max(dependency_targets + len(neighborhood_experts), 1)
+            dependency_fit *= neighborhood_coverage if neighborhood_experts else 1.0
+
+        motif_experts = {
+            str(row.get("expert_type") or "unknown")
+            for row in plan_rows
+            if str(row.get("expert_type") or "").strip()
+        }
+        motif_expert_coverage = self._coverage_score(target_experts, motif_experts)
+
+        motif_group_ids = {
+            row.get("group_id")
+            for row in plan_rows
+            if row.get("is_parallel") and row.get("group_id") is not None
+        }
+        expected_parallel_groups = len(motif_group_ids)
+        if expected_parallel_groups == 0 and any(row.get("is_parallel") for row in plan_rows):
+            expected_parallel_groups = 1
+
+        motif_parallel_alignment = 0.0
+        candidate_parallel_groups = self._parallel_groups_from_plan(plan)
+        if expected_parallel_groups > 0 and candidate_parallel_groups > 0:
+            motif_parallel_alignment = min(candidate_parallel_groups, expected_parallel_groups)
+            motif_parallel_alignment /= max(candidate_parallel_groups, expected_parallel_groups)
+
+        similarity_scores: List[float] = []
+        for row in neighborhood_rows:
+            seed = row.get("seed") or {}
+            similarity_scores.append(float(seed.get("similarity", 0.0) or 0.0))
+        for row in plan_rows:
+            similarity_scores.append(float(row.get("similarity", 0.0) or 0.0))
+        graph_similarity = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0
+
+        structural_components: List[float] = []
+        if neighborhood_rows:
+            structural_components.extend([neighborhood_coverage, dependency_fit])
+        if plan_rows:
+            structural_components.extend([motif_expert_coverage, motif_parallel_alignment])
+        structural_match = sum(structural_components) / len(structural_components) if structural_components else 0.0
+
+        total = structural_match * (0.10 + (0.25 * graph_similarity))
+        return total, {
+            "graph_similarity": round(graph_similarity, 4),
+            "graph_neighborhood_expert_coverage": round(neighborhood_coverage, 4),
+            "graph_dependency_fit": round(dependency_fit, 4),
+            "graph_motif_expert_coverage": round(motif_expert_coverage, 4),
+            "graph_motif_parallel_alignment": round(motif_parallel_alignment, 4),
+        }
 
     def _registry_prior(
         self,
