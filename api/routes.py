@@ -36,15 +36,19 @@ AVAILABLE_MODELS = [
 
 
 def _validate_requested_model(model_name: str) -> None:
+    return None
+
+
+def _resolve_requested_model(model_name: str) -> str:
     replacement = DEPRECATED_MODEL_REPLACEMENTS.get(model_name)
     if replacement:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"The model `{model_name}` has been decommissioned by the provider. "
-                f"Use `{replacement}` instead."
-            ),
+        logger.warning(
+            "Requested model `%s` is deprecated; remapping to `%s`.",
+            model_name,
+            replacement,
         )
+        return replacement
+    return model_name
 
 
 def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
@@ -101,7 +105,7 @@ async def get_init():
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
     api_key_str = (req.api_key or "").strip()
-    requested_model = (req.model or DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL
+    requested_model = _resolve_requested_model((req.model or DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL)
 
     _validate_requested_model(requested_model)
 

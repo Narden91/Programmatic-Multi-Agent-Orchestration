@@ -4,6 +4,7 @@ from datetime import datetime
 import time
 import asyncio
 import logging
+from ..core.config import get_fallback_model
 from ..core.state import MoEState
 from ..llm.providers import LLMProvider
 from ..utils.metrics import get_token_tracker
@@ -37,6 +38,35 @@ class _AgentMixin:
     def _is_rate_limit_error(error: Exception) -> bool:
         text = str(error).lower()
         return "rate_limit_exceeded" in text or "rate limit" in text
+
+    def _switch_to_fallback_model(self, error: Exception) -> bool:
+        current_model = getattr(self.llm, "model_name", "")
+        fallback_model = get_fallback_model(current_model, error)
+        if not fallback_model:
+            return False
+
+        clone_with_model = getattr(self.llm, "clone_with_model", None)
+        if not callable(clone_with_model):
+            return False
+
+        try:
+            self.llm = clone_with_model(fallback_model)
+        except Exception:
+            logger.exception(
+                "%s: Failed to switch from `%s` to fallback model `%s`.",
+                self.name,
+                current_model,
+                fallback_model,
+            )
+            return False
+
+        logger.warning(
+            "%s: Switching from `%s` to fallback model `%s` after provider failure.",
+            self.name,
+            current_model,
+            fallback_model,
+        )
+        return True
 
 
 # ======================================================================
@@ -72,6 +102,8 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._switch_to_fallback_model(e):
+                    continue
                 if self._is_rate_limit_error(e):
                     logger.error(f"{self.name}: Provider rate limit hit; skipping remaining retries.")
                     raise Exception(f"{self.name}: provider rate limit exceeded") from e
@@ -100,6 +132,8 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: Async LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._switch_to_fallback_model(e):
+                    continue
                 if self._is_rate_limit_error(e):
                     logger.error(f"{self.name}: Provider rate limit hit; skipping remaining async retries.")
                     raise Exception(f"{self.name}: provider rate limit exceeded") from e

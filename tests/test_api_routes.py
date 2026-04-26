@@ -22,7 +22,23 @@ def test_init_exposes_supported_models_and_default_model():
     assert "llama-3.1-70b-versatile" not in payload["models"]
 
 
-def test_query_rejects_decommissioned_model_before_provider_call(monkeypatch):
+def test_query_remaps_decommissioned_model_before_provider_call(monkeypatch):
+    seen = {}
+
+    class _Graph:
+        async def ainvoke(self, state):
+            return {"final_answer": "ok"}
+
+    class _Builder:
+        def __init__(self, config):
+            seen["model"] = config.orchestrator_config.model_name
+
+        def build(self):
+            return _Graph()
+
+    monkeypatch.setattr(routes, "MoEGraphBuilder", _Builder)
+    monkeypatch.setattr(routes.MoEConfig, "validate", lambda self: True)
+
     client = _build_client()
 
     response = client.post(
@@ -30,9 +46,8 @@ def test_query_rejects_decommissioned_model_before_provider_call(monkeypatch):
         json={"query": "hello", "model": "llama-3.1-70b-versatile"},
     )
 
-    assert response.status_code == 400
-    assert "decommissioned" in response.json()["detail"].lower()
-    assert "llama-3.1-8b-instant" in response.json()["detail"]
+    assert response.status_code == 200
+    assert seen["model"] == "llama-3.1-8b-instant"
 
 
 def test_query_maps_provider_rate_limit_to_429(monkeypatch):

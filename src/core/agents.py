@@ -1,14 +1,18 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import json
+import logging
 import re
 from typing import Dict, Any, List, Optional
 import time
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from .config import config, ExpertConfig
+from .config import config, ExpertConfig, get_fallback_model
 from ..llm.providers import LLMFactory
 from ..utils.metrics import get_token_tracker
+
+
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SemanticAtom:
@@ -219,10 +223,11 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
     provider_type = expert_config.provider_type or config.get_provider_type()
     api_key = config.get_api_key(provider_type)
     
+    llm_config = expert_config.llm_config
     llm_provider = LLMFactory.create_provider(
         provider_type=provider_type,
         api_key=api_key,
-        config=expert_config.llm_config,
+        config=llm_config,
     )
     
     # 3. Prepare messages
@@ -237,7 +242,29 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
     # Langchain models `invoke` and `ainvoke` support lists of messages.
     try:
         prompt_input: Any = messages
-        response = await llm_provider.ainvoke(prompt_input)
+        active_model_name = llm_config.model_name
+        try:
+            response = await llm_provider.ainvoke(prompt_input)
+        except Exception as e:
+            fallback_model = get_fallback_model(active_model_name, e)
+            if not fallback_model:
+                raise
+
+            logger.warning(
+                "Agent '%s' switching from `%s` to fallback model `%s` after provider failure.",
+                agent_type,
+                active_model_name,
+                fallback_model,
+            )
+            llm_config = replace(llm_config, model_name=fallback_model)
+            expert_config.llm_config = llm_config
+            llm_provider = LLMFactory.create_provider(
+                provider_type=provider_type,
+                api_key=api_key,
+                config=llm_config,
+            )
+            active_model_name = fallback_model
+            response = await llm_provider.ainvoke(prompt_input)
         # response is an AIMessage in langchain
         response_text = response.content
         
@@ -249,7 +276,7 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
             token_count = response.response_metadata["token_usage"].get("total_tokens", 0)
             
         tracker = get_token_tracker()
-        tracker.record_from_response(f"agent_{agent_type}", expert_config.llm_config.model_name, response)
+        tracker.record_from_response(f"agent_{agent_type}", active_model_name, response)
         
     except Exception as e:
         raise RuntimeError(f"Agent '{agent_type}' execution failed: {str(e)}")
@@ -259,7 +286,7 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
     agent_result = AgentResult.from_response_text(
         response_text,
         agent_type=agent_type,
-        metadata={"agent_type": agent_type, "model": expert_config.llm_config.model_name},
+        metadata={"agent_type": agent_type, "model": active_model_name},
         token_count=token_count,
         duration_ms=duration_ms,
     )

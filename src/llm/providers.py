@@ -9,6 +9,7 @@ need only be installed when used.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import replace
 from typing import Any, Dict, Type
 
 from ..core.config import LLMConfig
@@ -34,6 +35,13 @@ class LLMProvider(ABC):
         """Asynchronously invoke the LLM with a prompt"""
         pass
 
+    def clone_with_model(self, model_name: str) -> "LLMProvider":
+        api_key = getattr(self, "_api_key", None)
+        config = getattr(self, "_config", None)
+        if not api_key or not isinstance(config, LLMConfig):
+            raise NotImplementedError("Provider does not support model fallback")
+        return type(self)(api_key, replace(config, model_name=model_name))
+
 
 # ======================================================================
 # Concrete providers
@@ -47,6 +55,8 @@ class GroqProvider(LLMProvider):
     def __init__(self, api_key: str, config: LLMConfig):
         from langchain_groq import ChatGroq
 
+        self._api_key = api_key
+        self._config = config
         self.model_name = config.model_name
         self.llm = ChatGroq(
             api_key=api_key,
@@ -76,6 +86,8 @@ class OpenAIProvider(LLMProvider):
                 "Install it with: pip install langchain-openai"
             ) from exc
 
+        self._api_key = api_key
+        self._config = config
         self.model_name = config.model_name
         self.llm = ChatOpenAI(
             api_key=api_key,
@@ -105,6 +117,8 @@ class AnthropicProvider(LLMProvider):
                 "Install it with: pip install langchain-anthropic"
             ) from exc
 
+        self._api_key = api_key
+        self._config = config
         self.model_name = config.model_name
         self.llm = ChatAnthropic(
             api_key=api_key,

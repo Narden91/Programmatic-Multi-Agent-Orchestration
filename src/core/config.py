@@ -11,6 +11,10 @@ DEFAULT_LLM_MODEL = "llama-3.1-8b-instant"
 DEPRECATED_MODEL_REPLACEMENTS: Dict[str, str] = {
     "llama-3.1-70b-versatile": DEFAULT_LLM_MODEL,
 }
+MODEL_FALLBACKS: Dict[str, str] = {
+    "llama-3.3-70b-versatile": DEFAULT_LLM_MODEL,
+    "llama-3.1-70b-versatile": DEFAULT_LLM_MODEL,
+}
 GROQ_CHAT_MODELS = [
     DEFAULT_LLM_MODEL,
     "llama-3.3-70b-versatile",
@@ -20,6 +24,26 @@ GROQ_CHAT_MODELS = [
 ]
 OPENAI_CHAT_MODELS = ["gpt-4o", "gpt-4o-mini"]
 ANTHROPIC_CHAT_MODELS = ["claude-3-5-sonnet-20240620", "claude-3-5-haiku-20241022"]
+
+
+def get_fallback_model(model_name: str, error: Exception | None = None) -> str | None:
+    fallback_model = MODEL_FALLBACKS.get(model_name)
+    if not fallback_model or fallback_model == model_name:
+        return None
+
+    if error is None:
+        return fallback_model
+
+    text = str(error).lower()
+    if (
+        "rate_limit_exceeded" in text
+        or "rate limit" in text
+        or "model_decommissioned" in text
+        or "decommissioned" in text
+    ):
+        return fallback_model
+
+    return None
 
 
 # ---------------------------------------------------------------------------
