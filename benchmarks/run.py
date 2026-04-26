@@ -25,6 +25,10 @@ def main() -> None:
         "--model", type=str, default=None,
         help="Override LLM model name",
     )
+    parser.add_argument(
+        "--repeats", type=int, default=1,
+        help="How many times to run each benchmark case",
+    )
     args = parser.parse_args()
 
     # Late import so benchmarks module can be imported without side-effects
@@ -39,7 +43,13 @@ def main() -> None:
     graph = builder.build()
 
     suite = create_standard_suite()
-    report = asyncio.run(suite.run_all(graph, filter_pattern=args.filter))
+    report = asyncio.run(
+        suite.run_all(
+            graph,
+            filter_pattern=args.filter,
+            repeats=max(args.repeats, 1),
+        )
+    )
 
     print(report.pretty_print())
 

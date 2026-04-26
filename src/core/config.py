@@ -104,6 +104,7 @@ class MoEConfig:
     request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT", "120")))
     max_retries: int = field(default_factory=lambda: int(os.getenv("MAX_RETRIES", "3")))
     retry_delay: int = field(default_factory=lambda: int(os.getenv("RETRY_DELAY", "1")))
+    orchestrator_candidate_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_CANDIDATES", "1")))
 
     sandbox_isolate_process: bool = field(
         default_factory=lambda: os.getenv(
@@ -185,6 +186,10 @@ class MoEConfig:
             raise ValueError("SANDBOX_MAX_STATEMENTS must be > 0")
         if self.sandbox_max_query_calls <= 0:
             raise ValueError("SANDBOX_MAX_QUERY_CALLS must be > 0")
+        if self.orchestrator_candidate_count <= 0:
+            raise ValueError("ORCHESTRATOR_CANDIDATES must be > 0")
+        if self.orchestrator_candidate_count > 8:
+            raise ValueError("ORCHESTRATOR_CANDIDATES must be <= 8 to avoid runaway generation cost")
         
         return True
     

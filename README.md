@@ -379,6 +379,9 @@ python -m pytest tests/test_integration.py tests/test_groq.py -v
 ```bash
 # Run the standard benchmark suite (requires GROQ_API_KEY)
 python -m benchmarks.run
+
+# Run each benchmark case 5 times and print per-case aggregates
+python -m benchmarks.run --repeats 5
 ```
 
 ---
@@ -395,6 +398,7 @@ python -m benchmarks.run
 | `MAX_PARALLEL_EXPERTS` | `4` | Max concurrent expert calls |
 | `REQUEST_TIMEOUT` | `60` | Sandbox execution timeout (seconds) |
 | `MAX_RETRIES` | `3` | LLM call retry attempts |
+| `ORCHESTRATOR_CANDIDATES` | `1` | Number of candidate scripts generated per request; values >1 enable heuristic pre-selection |
 | `ENABLE_CACHE` | `true` | Enable/disable response caching |
 | `CACHE_TTL_SECONDS` | `3600` | Cache entry time-to-live |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |

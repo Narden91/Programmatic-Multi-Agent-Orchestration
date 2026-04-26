@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import statistics
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -57,6 +58,7 @@ class BenchmarkResult:
     experts_used: List[str] = field(default_factory=list)
     answer_snippet: str = ""
     error: str = ""
+    repeat_index: int = 1
 
 
 @dataclass
@@ -94,9 +96,11 @@ class BenchmarkReport:
             "failed": self.failed,
             "expert_accuracy_pct": round(self.expert_accuracy, 1),
             "total_elapsed_seconds": round(self.total_elapsed, 2),
+            "by_case": self.case_aggregates(),
             "per_case": [
                 {
                     "name": r.case.name,
+                    "repeat_index": r.repeat_index,
                     "success": r.success,
                     "elapsed": round(r.elapsed_seconds, 2),
                     "experts_used": r.experts_used,
@@ -107,6 +111,32 @@ class BenchmarkReport:
                 for r in self.results
             ],
         }
+
+    def case_aggregates(self) -> List[Dict[str, Any]]:
+        grouped: Dict[str, List[BenchmarkResult]] = {}
+        for result in self.results:
+            grouped.setdefault(result.case.name, []).append(result)
+
+        rows: List[Dict[str, Any]] = []
+        for name, items in grouped.items():
+            elapsed = [r.elapsed_seconds for r in items]
+            tokens = [
+                int(r.token_summary.get("total_tokens", 0))
+                for r in items
+                if r.token_summary
+            ]
+            pass_rate = sum(1 for r in items if r.success) / len(items) * 100
+            rows.append({
+                "name": name,
+                "runs": len(items),
+                "pass_rate_pct": round(pass_rate, 1),
+                "elapsed_mean": round(statistics.mean(elapsed), 3),
+                "elapsed_stdev": round(statistics.pstdev(elapsed), 3) if len(elapsed) > 1 else 0.0,
+                "tokens_mean": round(statistics.mean(tokens), 1) if tokens else 0.0,
+            })
+
+        rows.sort(key=lambda r: r["name"])
+        return rows
 
     def pretty_print(self) -> str:
         lines = [
@@ -128,6 +158,16 @@ class BenchmarkReport:
             )
             if r.error:
                 lines.append(f"         ERROR: {r.error[:120]}")
+
+        if self.results and max(r.repeat_index for r in self.results) > 1:
+            lines.append("-" * 60)
+            lines.append(" AGGREGATES (BY CASE)")
+            for row in self.case_aggregates():
+                lines.append(
+                    "  {name:30s} runs={runs:<2d} pass={pass_rate_pct:5.1f}% "
+                    "elapsed={elapsed_mean:.2f}s±{elapsed_stdev:.2f} tokens={tokens_mean:.1f}".format(**row)
+                )
+
         lines.append("=" * 60)
         return "\n".join(lines)
 
@@ -157,6 +197,7 @@ class BenchmarkSuite:
         graph: Any,
         *,
         filter_pattern: str = "",
+        repeats: int = 1,
     ) -> BenchmarkReport:
         """Execute every matching case against the compiled *graph*.
 
@@ -175,32 +216,37 @@ class BenchmarkSuite:
             else self._cases
         )
 
+        repeats = max(int(repeats), 1)
+
         report = BenchmarkReport()
         suite_start = time.time()
 
         for case in cases:
-            reset_token_tracker()
-            state = create_initial_state(case.query)
-            t0 = time.time()
-            try:
-                result_state = await graph.ainvoke(state)
-                elapsed = time.time() - t0
-                report.results.append(BenchmarkResult(
-                    case=case,
-                    success=True,
-                    elapsed_seconds=elapsed,
-                    token_summary=result_state.get("token_usage", {}),
-                    experts_used=result_state.get("selected_experts", []),
-                    answer_snippet=(result_state.get("final_answer", "")[:200]),
-                ))
-            except Exception as exc:
-                elapsed = time.time() - t0
-                report.results.append(BenchmarkResult(
-                    case=case,
-                    success=False,
-                    elapsed_seconds=elapsed,
-                    error=str(exc),
-                ))
+            for repeat_index in range(1, repeats + 1):
+                reset_token_tracker()
+                state = create_initial_state(case.query)
+                t0 = time.time()
+                try:
+                    result_state = await graph.ainvoke(state)
+                    elapsed = time.time() - t0
+                    report.results.append(BenchmarkResult(
+                        case=case,
+                        success=True,
+                        elapsed_seconds=elapsed,
+                        token_summary=result_state.get("token_usage", {}),
+                        experts_used=result_state.get("selected_experts", []),
+                        answer_snippet=(result_state.get("final_answer", "")[:200]),
+                        repeat_index=repeat_index,
+                    ))
+                except Exception as exc:
+                    elapsed = time.time() - t0
+                    report.results.append(BenchmarkResult(
+                        case=case,
+                        success=False,
+                        elapsed_seconds=elapsed,
+                        error=str(exc),
+                        repeat_index=repeat_index,
+                    ))
 
         report.total_elapsed = time.time() - suite_start
         return report

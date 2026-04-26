@@ -37,6 +37,7 @@ class MoEGraphBuilder:
         self.agents['orchestrator'] = OrchestratorAgent(
             orchestrator_llm,
             available_experts=list(registry.types),
+            candidate_count=self.config.orchestrator_candidate_count,
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(
