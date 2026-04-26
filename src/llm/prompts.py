@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 class OrchestratorPrompts:
@@ -10,6 +10,7 @@ class OrchestratorPrompts:
         available_experts: List[str],
         expert_descriptions: Optional[Dict[str, str]] = None,
         few_shot_examples: Optional[List[Tuple[str, str]]] = None,
+        atom_few_shot_examples: Optional[List[Dict[str, Any]]] = None,
         conversation_context: str = "",
     ) -> str:
         """Create orchestration prompt for code generation.
@@ -58,6 +59,27 @@ class OrchestratorPrompts:
                 + "\n\n".join(examples)
                 + "\n\nUse these as inspiration, but adapt to the current query.\n"
             )
+
+        atom_few_shot_section = ""
+        if atom_few_shot_examples:
+            examples = []
+            for i, example in enumerate(atom_few_shot_examples, 1):
+                dependencies = ", ".join(example.get("dependencies") or []) or "none"
+                evidence_tags = ", ".join(example.get("evidence_tags") or []) or "none"
+                examples.append(
+                    f"--- Atom Hint {i} ---\n"
+                    f'Origin Query: "{example.get("task_description", "")}"\n'
+                    f"Expert: {example.get('agent_type', 'general')}\n"
+                    f"Atom: {example.get('text', '')}\n"
+                    f"Confidence: {float(example.get('confidence', 0.0)):.2f}\n"
+                    f"Dependencies: {dependencies}\n"
+                    f"Evidence Tags: {evidence_tags}"
+                )
+            atom_few_shot_section = (
+                "\n\nRelevant semantic atoms retrieved from prior successful orchestrations:\n"
+                + "\n\n".join(examples)
+                + "\n\nUse these atoms as high-signal hints for decomposition, expert choice, and dependency ordering. Do not copy them blindly.\n"
+            )
         
         # Optional conversation context section
         context_section = ""
@@ -90,6 +112,7 @@ Instructions:
 7. You may use standard Python string manipulation and conditional logic (`if`/`else`).
 8. You do NOT need to import the tool functions or `asyncio`; they are already injected into the global namespace.
 {few_shot_section}
+{atom_few_shot_section}
 Example:
 ```python
 async def orchestrate():

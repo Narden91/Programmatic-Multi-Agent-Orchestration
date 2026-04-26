@@ -40,7 +40,8 @@ When a query arrives, our **Master Orchestrator** doesn't just route it through 
 | **Observability** | 📈 Token tracking with per-model cost estimation |
 | **Observability** | 🔍 Static code analysis — AST-extracted execution plans before a single LLM call runs |
 | **Memory** | 💬 Multi-turn conversation memory with sliding window and optional JSON persistence |
-| **Memory** | 📚 Script bank — stores successful orchestration scripts for few-shot prompting |
+| **Memory** | 📚 Script bank — stores successful orchestration scripts plus atom-level few-shot memories |
+| **Memory** | 🕸️ Persistent atom graph — stores semantic atoms and dependency edges for warm-task retrieval |
 | **Memory** | ⚡ `numpy`-vectorized geometric fallback for near-instant offline DB similarity searches |
 | **Extensibility** | 🧩 Dynamic expert registry — add/remove expert types at runtime |
 | **Extensibility** | 🏗️ Benchmark harness with standard suite for regression testing |
@@ -399,6 +400,10 @@ python -m benchmarks.run --repeats 5
 | `REQUEST_TIMEOUT` | `60` | Sandbox execution timeout (seconds) |
 | `MAX_RETRIES` | `3` | LLM call retry attempts |
 | `ORCHESTRATOR_CANDIDATES` | `1` | Number of candidate scripts generated per request; values >1 enable heuristic pre-selection |
+| `ORCHESTRATOR_SCRIPT_FEW_SHOTS` | `2` | Number of script-level few-shot examples retrieved for the orchestrator prompt |
+| `ORCHESTRATOR_ATOM_FEW_SHOTS` | `4` | Number of atom-level few-shot hints retrieved from `script_atoms` |
+| `ENABLE_ATOM_FEW_SHOT_RETRIEVAL` | `true` | Enable/disable atom-level few-shot prompt hints from the registry |
+| `ENABLE_METADATA_SELECTION_BIAS` | `true` | Enable/disable metadata-aware candidate ranking using prior atom-rich parallel scripts |
 | `ENABLE_CACHE` | `true` | Enable/disable response caching |
 | `CACHE_TTL_SECONDS` | `3600` | Cache entry time-to-live |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |

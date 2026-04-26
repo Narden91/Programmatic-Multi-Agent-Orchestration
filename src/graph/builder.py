@@ -38,6 +38,10 @@ class MoEGraphBuilder:
             orchestrator_llm,
             available_experts=list(registry.types),
             candidate_count=self.config.orchestrator_candidate_count,
+            script_few_shot_count=self.config.orchestrator_script_few_shot_count,
+            atom_few_shot_count=self.config.orchestrator_atom_few_shot_count,
+            enable_atom_few_shot_retrieval=self.config.enable_atom_few_shot_retrieval,
+            enable_metadata_selection_bias=self.config.enable_metadata_selection_bias,
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(

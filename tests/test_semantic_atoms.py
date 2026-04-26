@@ -100,3 +100,23 @@ def test_orchestrator_prompt_mentions_optional_atoms_contract():
 
     assert "res.atoms" in prompt
     assert "atom_id" in prompt
+
+
+def test_orchestrator_prompt_supports_atom_level_few_shots():
+    prompt = OrchestratorPrompts.create_orchestration_prompt(
+        query="Explain binary search",
+        available_experts=["technical"],
+        atom_few_shot_examples=[
+            {
+                "task_description": "Explain search algorithms",
+                "agent_type": "technical",
+                "text": "Binary search halves the interval.",
+                "confidence": 0.95,
+                "dependencies": ["sorted-input"],
+                "evidence_tags": ["algorithm"],
+            }
+        ],
+    )
+
+    assert "Relevant semantic atoms retrieved" in prompt
+    assert "Binary search halves the interval." in prompt

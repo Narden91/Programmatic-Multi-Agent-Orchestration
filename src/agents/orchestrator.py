@@ -28,13 +28,60 @@ class OrchestratorAgent(BaseAgent):
         llm_provider,
         available_experts: Optional[List[str]] = None,
         candidate_count: int = 1,
+        script_few_shot_count: int = 2,
+        atom_few_shot_count: int = 4,
+        enable_atom_few_shot_retrieval: bool = True,
+        enable_metadata_selection_bias: bool = True,
         script_bank: Optional[Any] = None, # kept for backward compat in init args
     ):
         super().__init__("Orchestrator", llm_provider)
         self.available_experts = available_experts or list(registry.types)
         self.candidate_count = max(1, int(candidate_count))
+        self.script_few_shot_count = max(0, int(script_few_shot_count))
+        self.atom_few_shot_count = max(0, int(atom_few_shot_count))
+        self.enable_atom_few_shot_retrieval = bool(enable_atom_few_shot_retrieval)
+        self.enable_metadata_selection_bias = bool(enable_metadata_selection_bias)
         self.prompts = OrchestratorPrompts()
         self.orchestration_registry = OrchestrationRegistry()
+
+    @staticmethod
+    def _build_script_examples(similar_rows: List[Dict[str, Any]]) -> List[tuple[str, str]]:
+        return [
+            (row["task_description"], row["script_content"])
+            for row in similar_rows
+            if row.get("task_description") and row.get("script_content")
+        ]
+
+    @staticmethod
+    def _build_atom_examples(atom_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        examples: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in atom_rows:
+            payload = row.get("payload") or {}
+            content_hash = str(
+                row.get("content_hash")
+                or payload.get("content_hash")
+                or payload.get("atom_id")
+                or ""
+            )
+            if content_hash:
+                if content_hash in seen:
+                    continue
+                seen.add(content_hash)
+
+            text = str(payload.get("text") or payload.get("compressed_text") or "").strip()
+            if not text:
+                continue
+
+            examples.append({
+                "task_description": row.get("task_description", ""),
+                "agent_type": row.get("agent_type", "general"),
+                "text": text,
+                "confidence": row.get("confidence", payload.get("confidence", 0.0)),
+                "dependencies": row.get("dependencies") or payload.get("dependencies") or [],
+                "evidence_tags": row.get("evidence_tags") or payload.get("evidence_tags") or [],
+            })
+        return examples
     
     async def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
@@ -43,12 +90,17 @@ class OrchestratorAgent(BaseAgent):
         descriptions = registry.descriptions()
         conversation_context = state.get('conversation_context', '')
         similar_rows: List[Dict[str, Any]] = []
+        atom_rows: List[Dict[str, Any]] = []
 
         # Gather few-shot examples from registry
         few_shot: List[tuple] = []
+        atom_few_shot: List[Dict[str, Any]] = []
         if not code_failure:
-            similar_rows = self.orchestration_registry.search(query, top_k=2)
-            few_shot = [(r["task_description"], r["script_content"]) for r in similar_rows]
+            similar_rows = self.orchestration_registry.search(query, top_k=self.script_few_shot_count)
+            few_shot = self._build_script_examples(similar_rows)
+            if self.enable_atom_few_shot_retrieval and self.atom_few_shot_count > 0:
+                atom_rows = self.orchestration_registry.search_atoms(query, top_k=self.atom_few_shot_count)
+                atom_few_shot = self._build_atom_examples(atom_rows)
 
         # Determine prompt based on whether it is a retry
         if code_failure and previous_code:
@@ -65,6 +117,7 @@ class OrchestratorAgent(BaseAgent):
                 available_experts=self.available_experts,
                 expert_descriptions=descriptions,
                 few_shot_examples=few_shot or None,
+                atom_few_shot_examples=atom_few_shot or None,
                 conversation_context=conversation_context,
             )
 
@@ -72,7 +125,12 @@ class OrchestratorAgent(BaseAgent):
         _kind = TraceKind.ORCHESTRATOR_RETRY if code_failure else TraceKind.ORCHESTRATOR_START
         await get_tracer().emit(TraceEvent(
             kind=_kind.value, agent=self.name,
-            data={"query_len": len(query), "is_retry": bool(code_failure), "few_shot": len(few_shot)},
+            data={
+                "query_len": len(query),
+                "is_retry": bool(code_failure),
+                "few_shot": len(few_shot),
+                "atom_few_shot": len(atom_few_shot),
+            },
         ))
 
         selection_details: Dict[str, Any]
@@ -115,6 +173,7 @@ class OrchestratorAgent(BaseAgent):
                     "code_length": len(generated_code),
                     "is_retry": bool(code_failure),
                     "few_shot_count": len(few_shot),
+                    "atom_few_shot_count": len(atom_few_shot),
                     "selection": selection_details,
                 }
             )]
@@ -195,7 +254,16 @@ class OrchestratorAgent(BaseAgent):
         if code_len > 12_000:
             score -= (code_len - 12_000) / 4_000
 
-        prior_boost, prior_details = self._registry_prior(plan, similar_rows)
+        if self.enable_metadata_selection_bias:
+            prior_boost, prior_details = self._registry_prior(plan, similar_rows)
+        else:
+            prior_boost, prior_details = 0.0, {
+                "registry_similarity": 0.0,
+                "registry_quality": 0.0,
+                "registry_expert_overlap": 0.0,
+                "registry_parallel_alignment": 0.0,
+                "registry_atom_alignment": 0.0,
+            }
         score += prior_boost
 
         return score, {

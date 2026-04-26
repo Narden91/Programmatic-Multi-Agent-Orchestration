@@ -13,6 +13,7 @@ class StubLLM:
     def __init__(self, responses: list[str]):
         self._responses = responses
         self.calls = 0
+        self.prompts = []
 
     def _next(self):
         idx = min(self.calls, len(self._responses) - 1)
@@ -20,18 +21,24 @@ class StubLLM:
         return SimpleNamespace(content=self._responses[idx])
 
     def invoke(self, prompt: str):
+        self.prompts.append(prompt)
         return self._next()
 
     async def ainvoke(self, prompt: str):
+        self.prompts.append(prompt)
         return self._next()
 
 
 class DummyRegistry:
-    def __init__(self, rows=None):
+    def __init__(self, rows=None, atom_rows=None):
         self.rows = rows or []
+        self.atom_rows = atom_rows or []
 
     def search(self, query: str, top_k: int = 2):
         return self.rows[:top_k]
+
+    def search_atoms(self, query: str, top_k: int = 4):
+        return self.atom_rows[:top_k]
 
 
 @pytest.mark.asyncio
@@ -132,6 +139,16 @@ def test_config_rejects_invalid_candidate_count():
         cfg.validate()
 
 
+def test_config_rejects_invalid_atom_few_shot_count():
+    cfg = MoEConfig(
+        groq_api_key=SecretStr("fake-key"),
+        orchestrator_atom_few_shot_count=-1,
+    )
+
+    with pytest.raises(ValueError, match="ORCHESTRATOR_ATOM_FEW_SHOTS"):
+        cfg.validate()
+
+
 @pytest.mark.asyncio
 async def test_candidate_search_uses_atom_and_parallel_registry_bias(monkeypatch):
     similar_rows = [
@@ -200,3 +217,49 @@ async def orchestrate():
     selection = result["reasoning_steps"][0]["details"]["selection"]
     assert selection["selected_features"]["registry_parallel_alignment"] == 1.0
     assert selection["selected_features"]["registry_atom_alignment"] > 0.9
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_prompt_includes_atom_level_few_shots(monkeypatch):
+    registry_rows = [
+        {
+            "task_description": "Explain search algorithms",
+            "script_content": "async def orchestrate():\n    return 'ok'\n",
+            "score": 0.8,
+            "similarity": 0.9,
+            "metadata": {},
+        }
+    ]
+    atom_rows = [
+        {
+            "task_description": "Explain search algorithms",
+            "agent_type": "technical",
+            "confidence": 0.95,
+            "dependencies": ["sorted-input"],
+            "evidence_tags": ["algorithm"],
+            "payload": {"text": "Binary search halves the interval.", "content_hash": "hash-1"},
+        }
+    ]
+
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda: DummyRegistry(registry_rows, atom_rows),
+    )
+
+    llm = StubLLM(["""```python
+async def orchestrate():
+    return 'ok'
+```"""])
+    agent = OrchestratorAgent(
+        llm_provider=llm,
+        available_experts=["technical"],
+        candidate_count=1,
+        script_few_shot_count=1,
+        atom_few_shot_count=1,
+    )
+
+    state = create_initial_state("Explain binary search")
+    await agent.execute(state)
+
+    assert "Relevant semantic atoms retrieved" in llm.prompts[0]
+    assert "Binary search halves the interval." in llm.prompts[0]

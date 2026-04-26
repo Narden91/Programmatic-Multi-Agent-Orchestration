@@ -59,6 +59,7 @@ class BenchmarkResult:
     answer_snippet: str = ""
     error: str = ""
     repeat_index: int = 1
+    retry_count: int = 0
 
 
 @dataclass
@@ -89,12 +90,36 @@ class BenchmarkReport:
         )
         return correct / len(self.results) * 100
 
+    @property
+    def success_rate_pct(self) -> float:
+        if not self.results:
+            return 0.0
+        return self.passed / len(self.results) * 100
+
+    @property
+    def mean_tokens(self) -> float:
+        tokens = [
+            int(r.token_summary.get("total_tokens", 0))
+            for r in self.results
+            if r.token_summary
+        ]
+        return statistics.mean(tokens) if tokens else 0.0
+
+    @property
+    def mean_retries(self) -> float:
+        if not self.results:
+            return 0.0
+        return statistics.mean(r.retry_count for r in self.results)
+
     def summary(self) -> Dict[str, Any]:
         return {
             "total_cases": len(self.results),
             "passed": self.passed,
             "failed": self.failed,
             "expert_accuracy_pct": round(self.expert_accuracy, 1),
+            "success_rate_pct": round(self.success_rate_pct, 1),
+            "retries_mean": round(self.mean_retries, 3),
+            "tokens_mean": round(self.mean_tokens, 1),
             "total_elapsed_seconds": round(self.total_elapsed, 2),
             "by_case": self.case_aggregates(),
             "per_case": [
@@ -106,6 +131,7 @@ class BenchmarkReport:
                     "experts_used": r.experts_used,
                     "expected_experts": r.case.expected_experts,
                     "tokens": r.token_summary.get("total_tokens", 0),
+                    "retry_count": r.retry_count,
                     "error": r.error[:200] if r.error else "",
                 }
                 for r in self.results
@@ -132,6 +158,7 @@ class BenchmarkReport:
                 "pass_rate_pct": round(pass_rate, 1),
                 "elapsed_mean": round(statistics.mean(elapsed), 3),
                 "elapsed_stdev": round(statistics.pstdev(elapsed), 3) if len(elapsed) > 1 else 0.0,
+                "retries_mean": round(statistics.mean(r.retry_count for r in items), 3),
                 "tokens_mean": round(statistics.mean(tokens), 1) if tokens else 0.0,
             })
 
@@ -146,7 +173,10 @@ class BenchmarkReport:
             f"  Total cases   : {len(self.results)}",
             f"  Passed        : {self.passed}",
             f"  Failed        : {self.failed}",
+            f"  Success rate  : {self.success_rate_pct:.1f}%",
             f"  Expert acc.   : {self.expert_accuracy:.1f}%",
+            f"  Mean retries  : {self.mean_retries:.2f}",
+            f"  Mean tokens   : {self.mean_tokens:.1f}",
             f"  Total time    : {self.total_elapsed:.2f}s",
             "-" * 60,
         ]
@@ -165,7 +195,77 @@ class BenchmarkReport:
             for row in self.case_aggregates():
                 lines.append(
                     "  {name:30s} runs={runs:<2d} pass={pass_rate_pct:5.1f}% "
-                    "elapsed={elapsed_mean:.2f}s±{elapsed_stdev:.2f} tokens={tokens_mean:.1f}".format(**row)
+                    "elapsed={elapsed_mean:.2f}s±{elapsed_stdev:.2f} retries={retries_mean:.2f} tokens={tokens_mean:.1f}".format(**row)
+                )
+
+        lines.append("=" * 60)
+        return "\n".join(lines)
+
+
+@dataclass
+class BenchmarkVariantRun:
+    name: str
+    report: BenchmarkReport
+
+
+@dataclass
+class BenchmarkComparisonReport:
+    variants: List[BenchmarkVariantRun] = field(default_factory=list)
+
+    def summary(self) -> Dict[str, Any]:
+        if not self.variants:
+            return {"variants": [], "deltas": []}
+
+        baseline = self.variants[0]
+        baseline_metrics = {
+            "success_rate_pct": baseline.report.success_rate_pct,
+            "retries_mean": baseline.report.mean_retries,
+            "tokens_mean": baseline.report.mean_tokens,
+        }
+
+        variants = []
+        deltas = []
+        for variant in self.variants:
+            metrics = {
+                "success_rate_pct": round(variant.report.success_rate_pct, 1),
+                "retries_mean": round(variant.report.mean_retries, 3),
+                "tokens_mean": round(variant.report.mean_tokens, 1),
+                "failed": variant.report.failed,
+            }
+            variants.append({"name": variant.name, "metrics": metrics})
+            if variant is baseline:
+                continue
+            deltas.append({
+                "name": variant.name,
+                "delta_success_rate_pct": round(variant.report.success_rate_pct - baseline_metrics["success_rate_pct"], 1),
+                "delta_retries_mean": round(variant.report.mean_retries - baseline_metrics["retries_mean"], 3),
+                "delta_tokens_mean": round(variant.report.mean_tokens - baseline_metrics["tokens_mean"], 1),
+            })
+
+        return {"variants": variants, "deltas": deltas}
+
+    def pretty_print(self) -> str:
+        lines = [
+            "=" * 60,
+            " BENCHMARK SLICE REPORT",
+            "=" * 60,
+        ]
+        summary = self.summary()
+        for item in summary["variants"]:
+            metrics = item["metrics"]
+            lines.append(
+                "  {name:18s} success={success_rate_pct:5.1f}% retries={retries_mean:.2f} tokens={tokens_mean:.1f} failed={failed}".format(
+                    name=item["name"],
+                    **metrics,
+                )
+            )
+
+        if summary["deltas"]:
+            lines.append("-" * 60)
+            lines.append(" DELTAS VS BASELINE")
+            for delta in summary["deltas"]:
+                lines.append(
+                    "  {name:18s} success={delta_success_rate_pct:+.1f} retries={delta_retries_mean:+.2f} tokens={delta_tokens_mean:+.1f}".format(**delta)
                 )
 
         lines.append("=" * 60)
@@ -237,6 +337,7 @@ class BenchmarkSuite:
                         experts_used=result_state.get("selected_experts", []),
                         answer_snippet=(result_state.get("final_answer", "")[:200]),
                         repeat_index=repeat_index,
+                        retry_count=max(int(result_state.get("code_execution_iterations", 0)) - 1, 0),
                     ))
                 except Exception as exc:
                     elapsed = time.time() - t0
@@ -250,6 +351,19 @@ class BenchmarkSuite:
 
         report.total_elapsed = time.time() - suite_start
         return report
+
+    async def run_variant_slice(
+        self,
+        graphs: Dict[str, Any],
+        *,
+        filter_pattern: str = "",
+        repeats: int = 1,
+    ) -> BenchmarkComparisonReport:
+        variants: List[BenchmarkVariantRun] = []
+        for name, graph in graphs.items():
+            report = await self.run_all(graph, filter_pattern=filter_pattern, repeats=repeats)
+            variants.append(BenchmarkVariantRun(name=name, report=report))
+        return BenchmarkComparisonReport(variants=variants)
 
 
 # ======================================================================

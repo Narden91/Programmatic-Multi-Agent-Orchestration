@@ -105,6 +105,10 @@ class MoEConfig:
     max_retries: int = field(default_factory=lambda: int(os.getenv("MAX_RETRIES", "3")))
     retry_delay: int = field(default_factory=lambda: int(os.getenv("RETRY_DELAY", "1")))
     orchestrator_candidate_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_CANDIDATES", "1")))
+    orchestrator_script_few_shot_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_SCRIPT_FEW_SHOTS", "2")))
+    orchestrator_atom_few_shot_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_ATOM_FEW_SHOTS", "4")))
+    enable_atom_few_shot_retrieval: bool = field(default_factory=lambda: os.getenv("ENABLE_ATOM_FEW_SHOT_RETRIEVAL", "true").lower() == "true")
+    enable_metadata_selection_bias: bool = field(default_factory=lambda: os.getenv("ENABLE_METADATA_SELECTION_BIAS", "true").lower() == "true")
 
     sandbox_isolate_process: bool = field(
         default_factory=lambda: os.getenv(
@@ -190,6 +194,10 @@ class MoEConfig:
             raise ValueError("ORCHESTRATOR_CANDIDATES must be > 0")
         if self.orchestrator_candidate_count > 8:
             raise ValueError("ORCHESTRATOR_CANDIDATES must be <= 8 to avoid runaway generation cost")
+        if self.orchestrator_script_few_shot_count < 0:
+            raise ValueError("ORCHESTRATOR_SCRIPT_FEW_SHOTS must be >= 0")
+        if self.orchestrator_atom_few_shot_count < 0:
+            raise ValueError("ORCHESTRATOR_ATOM_FEW_SHOTS must be >= 0")
         
         return True
     
