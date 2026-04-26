@@ -10,7 +10,7 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-optional-lightgrey)](https://openai.com)
 [![Anthropic](https://img.shields.io/badge/Anthropic-optional-lightgrey)](https://anthropic.com)
 [![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-103%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-144%20collected-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.5.0-blue)]()
 
 *Stop writing static DAGs. Let the AI write its own multi-agent execution graphs on the fly.*
@@ -21,33 +21,32 @@
 
 ## ✨ The Paradigm Shift: Code-as-Orchestration
 
-Traditional multi-agent frameworks rely on developer-defined, static Directed Acyclic Graphs (DAGs). This project introduces a vastly superior paradigm: **Code-as-Orchestration**.
+Traditional multi-agent frameworks rely on developer-defined, static Directed Acyclic Graphs (DAGs). This project instead treats orchestration itself as generated code.
 
-When a query arrives, our **Master Orchestrator** doesn't just route it through a static graph — it dynamically writes an **async Python script** to solve the problem. This script runs in a hardened sandbox, programmatically awaiting **Micro-Agent Tools**, analyzing intermediate results natively in Python, and synthesizing the final answer.
+When a query arrives, the **Master Orchestrator** retrieves prior successful scripts, semantic atoms, dependency neighborhoods, and plan motifs from a persistent registry, then writes one or more **async Python scripts** to solve the task. The selected script runs in a hardened sandbox, awaits expert calls through a unified `query_agent(...)` tool contract, reasons over intermediate `AgentResult` objects in native Python, and feeds the outcome back into the registry for future reuse.
 
 ### 🌟 Key Features
 
 | Category | Feature |
 |----------|---------|
-| **Core** | 🧩 Dynamic `async` script generation per query |
-| **Core** | 🛡️ Hardened code sandbox with AST validation, restricted builtins, and timeout enforcement |
-| **Core** | 🤖 Transient micro-agents (Technical, Creative, Analytical, General) spawned as async tool functions |
-| **Core** | 📉 Infinite context compression — intermediate dialogues stay in sandbox variables, saving tokens |
-| **Core** | ⚡ Zero-Latency Speculative Execution — Transparent AST Parallelizer automatically rewrites sequential tasks |
+| **Core** | 🧩 Dynamic `async def orchestrate()` generation per query |
+| **Core** | 🎯 Candidate search with heuristic pre-selection, retry repair, and graph-aware mode diversification |
+| **Core** | 🤖 Unified `query_agent(agent_type, prompt)` contract returning `AgentResult` with `.text` and semantic `.atoms` |
+| **Core** | ⚡ AST speculative execution pass that can rewrite independent waits into `asyncio.gather(...)` |
 | **Multi-Provider** | ⚡ Groq (default), OpenAI, and Anthropic seamlessly auto-detected via `LLMFactory` and dynamically bound |
 | **Multi-Provider** | 🔌 Per-expert provider override — mix Groq for speed and OpenAI for depth in the same pipeline |
-| **Observability** | 📊 Real-time streaming trace system with async subscriptions |
-| **Observability** | 📈 Token tracking with per-model cost estimation |
-| **Observability** | 🔍 Static code analysis — AST-extracted execution plans before a single LLM call runs |
 | **Memory** | 💬 Multi-turn conversation memory with sliding window and optional JSON persistence |
-| **Memory** | 📚 Script bank — stores successful orchestration scripts plus atom-level few-shot memories |
-| **Memory** | 🕸️ Persistent atom graph — stores semantic atoms and dependency edges for warm-task retrieval |
-| **Memory** | ⚡ `numpy`-vectorized geometric fallback for near-instant offline DB similarity searches |
+| **Memory** | 📚 Persistent registry storing scripts, `script_atoms`, `atom_edges`, `plan_motifs`, and learning metadata |
+| **Memory** | 🕸️ Atom-level few-shot retrieval, dependency neighborhoods, and compressed plan motifs for warm-task reuse |
+| **Memory** | ⚡ `numpy`-vectorized O(n) similarity fallback for offline registry search |
+| **Learning** | 📈 Learning-ranked retrieval that blends similarity with success rate, retries, token cost, and reuse signals |
+| **Observability** | 📊 Streaming trace systems for pipeline events and sandbox span traces (`trace_dna`) |
+| **Observability** | 📈 Token tracking with per-model cost estimation and static AST execution-plan analysis |
+| **Benchmarks** | 🧪 Standard suite with repeats, family aggregates, selection-bias slices, and warm-task graph-retrieval slices |
 | **Extensibility** | 🧩 Dynamic expert registry — add/remove expert types at runtime |
-| **Extensibility** | 🏗️ Benchmark harness with standard suite for regression testing |
 | **Security** | 🔒 `SecretStr` wrapper prevents API keys from leaking in repr/logs/tracebacks |
-| **Security** | 🔒 Sandboxed `print()` with bounded buffer — no stdout exfiltration |
-| **Security** | 🔒 Trace event redaction, bounded history, and file permission hardening |
+| **Security** | 🔒 Hardened sandbox with AST validation, restricted builtins, bounded `print()`, and configurable policy limits |
+| **Security** | 🔒 Trace event redaction, bounded history, and owner-only persisted memory files |
 | **UI** | 💻 React interface with FastAPI backend and real-time orchestration insights |
 
 ---
@@ -56,70 +55,85 @@ When a query arrives, our **Master Orchestrator** doesn't just route it through 
 
 ```mermaid
 graph TD
-    A[User Query] -->|+ conversation context| B(Orchestrator Agent)
-    B -->|Generates async Python script| C{Hardened Code Sandbox}
+    A[User Query + Conversation Context] --> B(Orchestrator Agent)
+    K[(Registry: scripts + atoms + motifs + learning)] --> B
+    B -->|Generates async Python candidate(s)| C{Hardened Code Sandbox}
 
-    C -->|await query_analytical_expert| D[Analytical Agent]
-    C -->|await query_technical_expert| E[Technical Agent]
-    C -->|await query_creative_expert| F[Creative Agent]
-    C -->|await query_general_expert| G[General Agent]
+    C -->|await query_agent("technical", ...)| D[Technical Agent]
+    C -->|await query_agent("analytical", ...)| E[Analytical Agent]
+    C -->|await query_agent("creative", ...)| F[Creative Agent]
+    C -->|await query_agent("general", ...)| G[General Agent]
 
-    D -.->|Returns insights| C
-    E -.->|Returns insights| C
-    F -.->|Returns insights| C
-    G -.->|Returns insights| C
+    D -.->|AgentResult.text / .atoms| C
+    E -.->|AgentResult.text / .atoms| C
+    F -.->|AgentResult.text / .atoms| C
+    G -.->|AgentResult.text / .atoms| C
 
-    C -->|Returns final synthesized string| H[LangGraph State]
-    H --> I[Trace / Metrics]
-    H --> J[Conversation Memory]
-    H --> Z[User Output]
+    C --> H[CodeExecutionAgent]
+    H --> I[LangGraph State]
+    I --> J[Trace / Metrics / Sandbox Output]
+    I --> K
+    I --> Z[User Output]
 ```
 
 ### The Workflow
 
 1. **Input** — A query arrives, enriched with conversation context from the sliding-window memory.
-2. **Orchestrate** — The Orchestrator generates an `async def orchestrate():` script, choosing which experts to call and whether to run them sequentially or in parallel (`asyncio.gather`).
-3. **Validate** — The sandbox performs AST analysis: imports, dangerous attributes, and blocked builtins are rejected *before* any code runs.
-4. **Execute** — The script runs inside a restricted `exec` with whitelisted builtins, a bounded `print` sink, and a configurable timeout.
-5. **Observe** — Trace events stream in real time; token usage and cost are tracked per call.
-6. **Output** — The sandbox returns the synthesized answer plus metadata (experts used, responses, execution plan) to the LangGraph state.
+2. **Retrieve** — The orchestrator queries the registry for similar scripts, semantic atoms, atom neighborhoods, and plan motifs.
+3. **Generate** — The orchestrator writes one or more `async def orchestrate():` candidates, optionally biasing them toward retrieved dependency structures and scheduling motifs.
+4. **Validate** — The sandbox performs AST analysis: imports, dangerous attributes, and blocked builtins are rejected *before* any code runs.
+5. **Execute** — The selected script runs inside a restricted `exec` with whitelisted builtins, a bounded `print` sink, tracked `query_agent(...)` handles, and a configurable timeout.
+6. **Learn** — Successful runs are scored, then persisted back into the registry along with full atom payloads, dependency edges, plan motifs, and execution metadata.
+7. **Observe** — Trace events, token usage, retry counts, and retrieval reuse metrics are attached to the LangGraph state and benchmark harness.
 
 ---
 
 ## 📁 Project Structure
 
 ```
+.github/
+├── AGENTS.md              # Operational handoff for coding agents
+api/
+├── main.py                # FastAPI app entrypoint
+├── routes.py              # /health, /init, /query endpoints
+└── schemas.py             # Request/response models
+benchmarks/
+├── run.py                 # Benchmark CLI with slice modes
+└── suite.py               # BenchmarkSuite, reports, standard cases
+frontend/
+└── src/                   # React dashboard
 src/
 ├── agents/
-│   ├── base.py            # BaseAgent with retry logic
-│   ├── orchestrator.py    # Orchestrator + CodeExecutor agents
-│   ├── router.py          # Query router
-│   ├── synthesizer.py     # Response synthesizer
-│   ├── tools.py           # Sandbox tool function factory
+│   ├── base.py            # Shared retry behavior
+│   ├── orchestrator.py    # Orchestrator + CodeExecution agents
 │   ├── registry.py        # Dynamic expert registry
+│   ├── tools.py           # Expert spawning + runtime registration helpers
 │   └── experts/
 │       └── generic.py     # Generic expert implementation
 ├── core/
+│   ├── agents.py          # `query_agent` contract, AgentResult, SemanticAtom
 │   ├── config.py          # MoEConfig, SecretStr, LLMConfig, ExpertConfig
+│   ├── memory.py          # Ephemeral in-sandbox semantic memory
+│   ├── registry.py        # Script/atom/motif persistence and retrieval
 │   ├── sandbox.py         # Hardened sandbox with AST validation
-│   └── state.py           # LangGraph state schema
+│   ├── scoring.py         # Execution-quality scoring
+│   ├── state.py           # LangGraph state schema
+│   └── tracing.py         # Sandbox span tracing
 ├── graph/
 │   └── builder.py         # LangGraph workflow builder
 ├── llm/
-│   ├── prompts.py         # Prompt templates
+│   ├── prompts.py         # Prompt templates and retry contract
 │   └── providers.py       # LLMFactory: Groq, OpenAI, Anthropic
-├── utils/
-│   ├── cache.py           # LRU + TTL response cache
-│   ├── code_analyzer.py   # AST-based execution plan extraction
-│   ├── logging.py         # Structured logging
-│   ├── memory.py          # Conversation memory (sliding window + persistence)
-│   ├── metrics.py         # Token tracking & cost estimation
-│   ├── script_bank.py     # Few-shot script memory bank
-│   └── tracing.py         # Streaming trace system
-├── benchmarks/
-│   ├── suite.py           # BenchmarkSuite, BenchmarkCase, BenchmarkReport
-│   └── run.py             # CLI benchmark runner
-└── tests/                 # 103 tests (unit + integration)
+└── utils/
+    ├── cache.py           # LRU + TTL response cache
+    ├── code_analyzer.py   # AST-based execution plan extraction
+    ├── embeddings.py      # Embedding model loader
+    ├── logging.py         # Structured logging
+    ├── memory.py          # Conversation memory (sliding window + persistence)
+    ├── metrics.py         # Token tracking & cost estimation
+    ├── script_bank.py     # Legacy script bank retained for compatibility
+    └── tracing.py         # Pipeline event tracing
+tests/                     # 144 collected tests across unit, integration, and benchmark slices
 ```
 
 ---
@@ -196,11 +210,12 @@ Backend health: `http://127.0.0.1:8000/api/health`
 
 > Important: if you see `http proxy error: /api/init ECONNREFUSED 127.0.0.1:8000`, the frontend is running but the backend is not reachable. Start the backend first and re-open the frontend.
 
-### Recent Updates (Mar 2026)
+### Recent Updates (Apr 2026)
 
-- **Native Windows Build**: Full support via `start.ps1` using `npx concurrently` and `uv` natively — no more MSYS/WSL conflicts.
-- **V3 Flow**: Converted the MoE implementation from static DAGs to code-writing Master Orchestrators generating sandboxed Python.
-- **Observability Tab**: Live streaming "Visual DNA" tracing embedded in the new dashboard.
+- **Semantic Memory Graph**: Successful runs now persist full semantic atom payloads, dependency edges, compressed plan motifs, and learning aggregates into the registry.
+- **Graph-Shaped Retrieval**: The orchestrator now uses atom-level few-shot hints, dependency neighborhoods, plan motifs, and metadata-biased candidate search instead of relying on script-level retrieval alone.
+- **Evaluation Slices**: The benchmark CLI now supports `--selection-bias-slice`, `--warm-task-slice`, repeats/family aggregates, and `--model` overrides that apply to both orchestrator and expert calls.
+- **Sandbox Contract Hardening**: `query_agent(...)` handles are task-compatible for scheduling patterns, and the prompt contract now explicitly warns against accessing `.text` or `.atoms` before `await`.
 
 ---
 
@@ -267,15 +282,17 @@ config = MoEConfig(
 ### Dynamic Expert Registration
 
 ```python
-from src.agents.registry import registry
+from src.agents.tools import register_expert
 
-registry.register(
+register_expert(
     expert_type="legal",
     description="Contract law, compliance, regulation",
-    system_prompt="You are a legal expert.",
     prompt_template='You are a legal expert.\n\nQuery: "{query}"\n\nRespond:',
+    system_prompt="You are a legal expert.",
 )
-# The "legal" expert is now available as `await query_legal_expert(...)` in generated scripts.
+
+# The "legal" expert is now available to generated sandbox code as:
+# result = await query_agent("legal", "Review this clause")
 ```
 
 ### Streaming Traces
@@ -349,10 +366,10 @@ The system implements defence-in-depth across multiple layers:
 | **AST validation** | Imports, `__globals__`, `__builtins__`, `eval`, `exec`, `open`, `getattr`, and 20+ dangerous constructs are rejected *before* execution |
 | **Restricted builtins** | Only a curated whitelist of safe builtins is exposed inside the sandbox |
 | **Bounded stdout** | `print()` is replaced with a capped buffer (`_SandboxPrinter`, 10 KB limit) — no real stdout access |
-| **Execution timeout** | `asyncio.wait_for` enforces configurable wall-clock limits (default 60 s) |
+| **Execution timeout** | `asyncio.wait_for` enforces configurable wall-clock limits (default 120 s) |
 | **Secret protection** | API keys are wrapped in `SecretStr` — masked in `repr()`, `str()`, logs, and tracebacks |
 | **Trace redaction** | User queries are excluded from trace events; history is bounded (default 500 entries) |
-| **Error sanitization** | Internal exception details are logged only, not propagated to callers |
+| **Error surface** | Full tracebacks stay server-side; API callers receive the exception message without the traceback |
 | **File permissions** | Persisted conversation files are written with `0o600` (owner-only) permissions |
 | **No shell injection** | CLI uses `subprocess.run` with explicit argument lists — no `os.system` |
 | **Cache integrity** | SHA-256 for cache key generation |
@@ -362,7 +379,7 @@ The system implements defence-in-depth across multiple layers:
 ## 🧪 Testing
 
 ```bash
-# Run the full test suite (103 tests)
+# Run the full test suite (currently 144 collected tests)
 python -m pytest tests/ -v
 
 # With coverage report
@@ -383,6 +400,15 @@ python -m benchmarks.run
 
 # Run each benchmark case 5 times and print per-case aggregates
 python -m benchmarks.run --repeats 5
+
+# Compare baseline retrieval vs metadata-biased candidate selection
+python -m benchmarks.run --repeats 5 --selection-bias-slice
+
+# Compare baseline retrieval vs graph-aware warm-task retrieval
+python -m benchmarks.run --repeats 5 --warm-task-slice
+
+# Use a smaller model for quota-aware smoke slices (applies to orchestrator and experts)
+python -m benchmarks.run --model llama-3.1-8b-instant --filter single_technical --selection-bias-slice
 ```
 
 ---
@@ -397,17 +423,25 @@ python -m benchmarks.run --repeats 5
 | `ORCHESTRATOR_MODEL` | `llama-3.3-70b-versatile` | Model for the orchestrator agent |
 | `MAX_TOKENS` | `2000` | Maximum tokens per LLM call |
 | `MAX_PARALLEL_EXPERTS` | `4` | Max concurrent expert calls |
-| `REQUEST_TIMEOUT` | `60` | Sandbox execution timeout (seconds) |
+| `REQUEST_TIMEOUT` | `120` | Sandbox execution timeout (seconds) |
 | `MAX_RETRIES` | `3` | LLM call retry attempts |
 | `ORCHESTRATOR_CANDIDATES` | `1` | Number of candidate scripts generated per request; values >1 enable heuristic pre-selection |
 | `ORCHESTRATOR_SCRIPT_FEW_SHOTS` | `2` | Number of script-level few-shot examples retrieved for the orchestrator prompt |
 | `ORCHESTRATOR_ATOM_FEW_SHOTS` | `4` | Number of atom-level few-shot hints retrieved from `script_atoms` |
 | `ENABLE_ATOM_FEW_SHOT_RETRIEVAL` | `true` | Enable/disable atom-level few-shot prompt hints from the registry |
 | `ENABLE_METADATA_SELECTION_BIAS` | `true` | Enable/disable metadata-aware candidate ranking using prior atom-rich parallel scripts |
+| `REGISTRY_DB_PATH` | `.moe_registry.db` | SQLite registry used for scripts, atoms, motifs, and learning metadata |
+| `SANDBOX_ISOLATE_PROCESS` | `false` on Windows / `true` elsewhere | Whether to run the sandbox in a separate process |
+| `SANDBOX_MAX_CODE_CHARS` | `30000` | Maximum generated code size accepted by the sandbox |
+| `SANDBOX_MAX_AST_NODES` | `8000` | Maximum AST node count allowed before execution |
+| `SANDBOX_MAX_STATEMENTS` | `1500` | Maximum statement count allowed before execution |
+| `SANDBOX_MAX_QUERY_CALLS` | `120` | Maximum number of `query_agent(...)` calls allowed in a script |
 | `ENABLE_CACHE` | `true` | Enable/disable response caching |
 | `CACHE_TTL_SECONDS` | `3600` | Cache entry time-to-live |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 | `DEBUG` | `false` | Enable debug mode |
+
+`LLMConfig.from_env()` also supports per-role overrides such as `TECHNICAL_MODEL`, `ANALYTICAL_MODEL`, `CREATIVE_MODEL`, `GENERAL_MODEL`, and `CRITICAL_THINKER_MODEL`.
 
 ### Verify API key loading
 
