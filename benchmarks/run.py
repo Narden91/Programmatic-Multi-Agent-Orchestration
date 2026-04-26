@@ -18,6 +18,12 @@ import tempfile
 from benchmarks.suite import create_standard_suite
 
 
+def _apply_model_override(cfg, model_name: str) -> None:
+    cfg.orchestrator_config.model_name = model_name
+    for expert_config in cfg.expert_configs.values():
+        expert_config.llm_config.model_name = model_name
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run MoE benchmark suite")
     parser.add_argument(
@@ -26,7 +32,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--model", type=str, default=None,
-        help="Override LLM model name",
+        help="Override benchmark model name for orchestrator and experts",
     )
     parser.add_argument(
         "--repeats", type=int, default=1,
@@ -48,12 +54,13 @@ def main() -> None:
         parser.error("Choose either --selection-bias-slice or --warm-task-slice, not both.")
 
     # Late import so benchmarks module can be imported without side-effects
-    from src.core.config import MoEConfig, SecretStr
+    from src.core.config import MoEConfig, SecretStr, config as runtime_config
     from src.graph.builder import MoEGraphBuilder
 
     cfg = MoEConfig()
     if args.model:
-        cfg.orchestrator_config.model_name = args.model
+        _apply_model_override(cfg, args.model)
+        _apply_model_override(runtime_config, args.model)
 
     suite = create_standard_suite()
     repeats = max(args.repeats, 1)

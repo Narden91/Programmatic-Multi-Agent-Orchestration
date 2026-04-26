@@ -3,7 +3,9 @@ import asyncio
 
 import pytest
 
+from benchmarks.run import _apply_model_override
 from benchmarks.suite import BenchmarkCase, BenchmarkSuite
+from src.core.config import MoEConfig, SecretStr
 
 
 @pytest.mark.asyncio
@@ -113,3 +115,15 @@ async def test_run_all_records_cancelled_runs_as_failures():
     assert len(report.results) == 1
     assert report.results[0].success is False
     assert "cancelled" in report.results[0].error
+
+
+def test_apply_model_override_updates_all_expert_models():
+    cfg = MoEConfig(groq_api_key=SecretStr("fake-key"))
+
+    _apply_model_override(cfg, "llama-3.1-8b-instant")
+
+    assert cfg.orchestrator_config.model_name == "llama-3.1-8b-instant"
+    assert all(
+        expert.llm_config.model_name == "llama-3.1-8b-instant"
+        for expert in cfg.expert_configs.values()
+    )

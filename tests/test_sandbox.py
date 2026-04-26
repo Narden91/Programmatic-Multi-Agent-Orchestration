@@ -80,3 +80,51 @@ async def orchestrate():
     assert res["trace"][0]["outputs"]["response_format"] == "semantic_atoms"
     assert res["trace"][0]["outputs"]["atoms"][1]["dependencies"] == ["bs-1"]
     assert res["trace"][0]["outputs"]["atoms"][0]["atom_id"] == "bs-1"
+
+
+@pytest.mark.asyncio
+async def test_sandbox_cancels_abandoned_query_tasks(monkeypatch):
+    cancelled = asyncio.Event()
+
+    async def fake_query_agent(agent_type, prompt, context_ids=None):
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr("src.core.sandbox.real_query_agent", fake_query_agent)
+
+    sandbox = CodeSandbox(isolate_process=False)
+    code = '''
+async def orchestrate():
+    pending = asyncio.ensure_future(query_agent("technical", "Explain binary search"))
+    await asyncio.sleep(0)
+    return 1 / 0
+'''
+
+    with pytest.raises(ZeroDivisionError, match="division by zero"):
+        await sandbox.execute(code)
+
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_tracked_query_handle_exposes_task_methods(monkeypatch):
+    async def fake_query_agent(agent_type, prompt, context_ids=None):
+        return AgentResult(text=f"ok:{agent_type}")
+
+    monkeypatch.setattr("src.core.sandbox.real_query_agent", fake_query_agent)
+
+    sandbox = CodeSandbox(isolate_process=False)
+    code = '''
+async def orchestrate():
+    pending = query_agent("technical", "Explain binary search")
+    before = pending.done()
+    result = await pending
+    return f"{before}:{pending.done()}:{pending.exception()}:{pending.result().text}:{result.text}"
+'''
+
+    res = await sandbox.execute(code)
+
+    assert res["result"] == "False:True:None:ok:technical:ok:technical"

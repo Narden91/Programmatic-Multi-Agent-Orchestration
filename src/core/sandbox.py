@@ -206,12 +206,13 @@ class CodeSandbox:
         self.tracer: Optional[Tracer] = None
         self.memory: Optional[Any] = None
         self._call_log: Dict[str, str] = {}
+        self._pending_query_tasks: Set[asyncio.Task[Any]] = set()
         # Compatibility surface used by tests and introspection
         self.allowed_globals = {"__builtins__": dict(_SAFE_BUILTINS)}
         
     def _make_tracked_query_agent(self):
         """Creates a sandboxed version of query_agent that is traced and logs results."""
-        async def _tracked(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
+        async def _tracked_call(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
             span = self.tracer.start_span(
                 name=f"query_agent_{agent_type}",
                 span_type="agent",
@@ -239,7 +240,70 @@ class CodeSandbox:
             except Exception as e:
                 self.tracer.end_span(span, error=e)
                 raise
+
+        class _TrackedQueryHandle:
+            def __init__(self, outer: "CodeSandbox", agent_type: str, prompt: str, context_ids: Optional[List[str]]) -> None:
+                self._outer = outer
+                self._agent_type = agent_type
+                self._prompt = prompt
+                self._context_ids = context_ids
+                self._task: Optional[asyncio.Task[Any]] = None
+
+            def _ensure_task(self) -> asyncio.Task[Any]:
+                if self._task is None:
+                    self._task = asyncio.create_task(_tracked_call(self._agent_type, self._prompt, self._context_ids))
+                    self._outer._pending_query_tasks.add(self._task)
+                    self._task.add_done_callback(self._outer._pending_query_tasks.discard)
+                return self._task
+
+            def __await__(self):
+                return self._ensure_task().__await__()
+
+            def done(self) -> bool:
+                return self._task is not None and self._task.done()
+
+            def cancelled(self) -> bool:
+                return self._task is not None and self._task.cancelled()
+
+            def cancel(self) -> bool:
+                return self._ensure_task().cancel()
+
+            def result(self) -> Any:
+                return self._ensure_task().result()
+
+            def exception(self) -> BaseException | None:
+                return self._ensure_task().exception()
+
+            def add_done_callback(self, callback) -> None:
+                self._ensure_task().add_done_callback(callback)
+
+            def remove_done_callback(self, callback) -> int:
+                if self._task is None:
+                    return 0
+                return self._task.remove_done_callback(callback)
+
+            def __getattr__(self, name: str) -> Any:
+                if name in {"text", "atoms", "metadata", "token_count", "duration_ms"}:
+                    raise AttributeError(
+                        "Await query_agent(...) before accessing result fields like .text or .atoms. "
+                        "Use task = query_agent(...); result = await task"
+                    )
+                raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
+
+        def _tracked(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
+            return _TrackedQueryHandle(self, agent_type, prompt, context_ids)
+
         return _tracked
+
+    async def _drain_pending_query_tasks(self) -> None:
+        pending = [task for task in self._pending_query_tasks if not task.done()]
+        self._pending_query_tasks.clear()
+        if not pending:
+            return
+
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
 
     def _make_tracked_memory(self):
         """Creates sandboxed memory functions, traced."""
@@ -414,6 +478,7 @@ class CodeSandbox:
         self._call_log = {}
         self.tracer = Tracer()
         self.memory = None
+        self._pending_query_tasks = set()
         sandbox_printer = _SandboxPrinter()
         
         store_fn, search_fn, compress_fn = self._make_tracked_memory()
@@ -459,6 +524,7 @@ class CodeSandbox:
             logger.error(f"Sandbox execution failed: {e}")
             raise
         finally:
+            await self._drain_pending_query_tasks()
             if self.memory:
                 self.memory.cleanup()
 

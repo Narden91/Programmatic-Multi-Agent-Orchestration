@@ -100,6 +100,7 @@ def test_orchestrator_prompt_mentions_optional_atoms_contract():
 
     assert "res.atoms" in prompt
     assert "atom_id" in prompt
+    assert "Never access `.text`, `.atoms`" in prompt
 
 
 def test_orchestrator_prompt_supports_atom_level_few_shots():

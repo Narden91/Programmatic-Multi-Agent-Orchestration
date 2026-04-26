@@ -165,6 +165,7 @@ Instructions:
 1. Break down the query into steps.
 2. For each step, determine if you need to query an expert. If you have multiple independent questions or chunks, use a `for` loop to build a list of tasks and `await asyncio.gather(*tasks)`.
 3. If the flow is sequential, await each expert one by one and pass previous responses if necessary.
+3a. Never access `.text`, `.atoms`, or other result fields on `query_agent(...)` until after you have awaited that call or received the resolved result from `asyncio.gather`.
 4. You MUST define exactly ONE function called `async def orchestrate():` with no parameters.
 5. In your `orchestrate` function, write the logic to gather the information, and then clearly RETURN a single final string with the comprehensive answer based on everything gathered. Do NOT print the final answer instead of returning it.
 6. Only output valid Python code inside a single ```python codeblock. Do not output anything outside the codeblock.
@@ -233,6 +234,7 @@ Available async functions (tools):
 --- INSTRUCTIONS ---
 1. Analyze the error and the failed script above.
 2. Fix the issue and rewrite the script.
+2a. If the failure mentions `.text`, `.atoms`, or a tracked query handle, await the `query_agent(...)` call before accessing result fields.
 3. You MUST define exactly ONE function called `async def orchestrate():` with no parameters.
 4. The function must RETURN a single final string.
 5. Only output valid Python code inside a single ```python codeblock.
