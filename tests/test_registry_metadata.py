@@ -30,6 +30,12 @@ async def test_code_execution_agent_stores_trace_summary_metadata():
     agent.scorer.score_execution = AsyncMock(return_value=0.87)
 
     state = create_initial_state("Explain binary search")
+    state["metadata"] = {
+        "retrieval": {
+            "neighborhood_reuse_rate": 0.5,
+            "plan_reuse_rate": 0.25,
+        }
+    }
     state["generated_code"] = (
         "async def orchestrate():\n"
         "    result = await query_agent('technical', 'Explain binary search')\n"
@@ -82,5 +88,8 @@ async def test_code_execution_agent_stores_trace_summary_metadata():
     assert saved["selected_experts"] == ["technical"]
     assert saved["trace_summary"]["atom_count_total"] == 2
     assert saved["trace_summary"]["response_formats"] == ["semantic_atoms"]
+    assert saved["execution_metrics"]["retry_count"] == 0
+    assert saved["execution_metrics"]["neighborhood_reuse_rate"] == 0.5
+    assert saved["execution_metrics"]["plan_reuse_rate"] == 0.25
     assert len(capture.calls[0]["atom_payloads"]) == 2
     assert capture.calls[0]["atom_payloads"][1]["payload"]["dependencies"] == ["bs-1"]

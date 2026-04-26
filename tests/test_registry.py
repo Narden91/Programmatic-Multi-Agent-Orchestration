@@ -55,6 +55,89 @@ def test_store_and_search_preserves_metadata(temp_registry):
     assert results[0]["metadata"]["trace_summary"]["atom_count_total"] == 2
 
 
+def test_store_script_merges_learning_updates_for_same_script(temp_registry):
+    script = "async def orchestrate(): return 'ok'"
+
+    temp_registry.store_script(
+        "Explain binary search",
+        script,
+        score=0.9,
+        metadata={
+            "outcome": "success",
+            "execution_metrics": {
+                "retry_count": 0,
+                "total_tokens": 100,
+                "neighborhood_reuse_rate": 1.0,
+                "plan_reuse_rate": 0.5,
+            },
+        },
+    )
+    temp_registry.store_script(
+        "Explain binary search",
+        script,
+        score=0.3,
+        metadata={
+            "outcome": "error",
+            "error": "boom",
+            "execution_metrics": {
+                "retry_count": 2,
+                "total_tokens": 300,
+                "neighborhood_reuse_rate": 0.0,
+                "plan_reuse_rate": 0.0,
+            },
+        },
+    )
+
+    results = temp_registry.search("Explain binary search", top_k=1)
+
+    assert len(results) == 1
+    assert results[0]["execution_count"] == 2
+    learning = results[0]["metadata"]["learning"]
+    assert learning["observations"] == 2
+    assert learning["success_count"] == 1
+    assert learning["failure_count"] == 1
+    assert learning["success_rate"] == 0.5
+    assert learning["mean_retry_count"] == 1.0
+    assert learning["mean_total_tokens"] == 200.0
+    assert learning["mean_neighborhood_reuse_rate"] == 0.5
+
+
+def test_search_prefers_successful_learned_script_when_similarity_ties(temp_registry):
+    temp_registry.model = _FakeEmbeddingModel({
+        "Explain binary search": [1.0, 0.0],
+    })
+
+    temp_registry.store_script(
+        "Explain binary search",
+        "async def orchestrate(): return 'failure'",
+        score=0.0,
+        metadata={
+            "outcome": "error",
+            "execution_metrics": {"retry_count": 2, "total_tokens": 450},
+        },
+    )
+    temp_registry.store_script(
+        "Explain binary search",
+        "async def orchestrate(): return 'success'",
+        score=0.95,
+        metadata={
+            "outcome": "success",
+            "execution_metrics": {
+                "retry_count": 0,
+                "total_tokens": 90,
+                "neighborhood_reuse_rate": 1.0,
+                "plan_reuse_rate": 1.0,
+            },
+        },
+    )
+
+    results = temp_registry.search("Explain binary search", top_k=2)
+
+    assert len(results) == 2
+    assert "success" in results[0]["script_content"]
+    assert results[0]["learning_rank"] > results[1]["learning_rank"]
+
+
 def test_store_and_fetch_full_atom_payloads(temp_registry):
     script_id = temp_registry.store_script(
         "Explain binary search",

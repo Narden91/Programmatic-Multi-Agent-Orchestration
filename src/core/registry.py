@@ -123,6 +123,204 @@ class OrchestrationRegistry:
         return [list(vector) for vector in vectors]
 
     @staticmethod
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+        return max(lower, min(upper, value))
+
+    @classmethod
+    def _weighted_mean(cls, previous_mean: float, previous_count: int, current_value: float) -> float:
+        if previous_count <= 0:
+            return current_value
+        return ((previous_mean * previous_count) + current_value) / (previous_count + 1)
+
+    @classmethod
+    def _execution_metric(cls, metadata: Dict[str, Any], key: str, default: float = 0.0) -> float:
+        metrics = metadata.get("execution_metrics") if isinstance(metadata, dict) else None
+        if not isinstance(metrics, dict):
+            return default
+        return cls._coerce_float(metrics.get(key), default)
+
+    @classmethod
+    def _learning_snapshot(cls, metadata: Dict[str, Any], score: float) -> Dict[str, Any]:
+        outcome = str((metadata or {}).get("outcome") or "success").strip().lower()
+        success_count = 1 if outcome == "success" else 0
+        failure_count = 0 if outcome == "success" else 1
+        score_value = max(cls._coerce_float(score, 0.0), 0.0)
+        retry_count = max(cls._execution_metric(metadata, "retry_count"), 0.0)
+        total_tokens = max(cls._execution_metric(metadata, "total_tokens"), 0.0)
+        neighborhood_reuse_rate = cls._clamp(cls._execution_metric(metadata, "neighborhood_reuse_rate"), 0.0, 1.0)
+        plan_reuse_rate = cls._clamp(cls._execution_metric(metadata, "plan_reuse_rate"), 0.0, 1.0)
+        return {
+            "observations": 1,
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "success_rate": float(success_count),
+            "mean_score": round(score_value, 4),
+            "best_score": round(score_value, 4),
+            "mean_retry_count": round(retry_count, 4),
+            "mean_total_tokens": round(total_tokens, 4),
+            "mean_neighborhood_reuse_rate": round(neighborhood_reuse_rate, 4),
+            "mean_plan_reuse_rate": round(plan_reuse_rate, 4),
+        }
+
+    @classmethod
+    def _merge_metadata(
+        cls,
+        existing_metadata: Dict[str, Any],
+        incoming_metadata: Dict[str, Any],
+        existing_score: float,
+        incoming_score: float,
+        existing_execution_count: int,
+    ) -> Dict[str, Any]:
+        existing_metadata = dict(existing_metadata or {})
+        incoming_metadata = dict(incoming_metadata or {})
+        existing_learning = existing_metadata.get("learning")
+        if not isinstance(existing_learning, dict):
+            existing_learning = {}
+
+        previous_observations = cls._coerce_int(
+            existing_learning.get("observations"),
+            max(existing_execution_count, 1 if existing_metadata else 0),
+        )
+        previous_success_count = cls._coerce_int(
+            existing_learning.get("success_count"),
+            1 if str(existing_metadata.get("outcome") or "").lower() == "success" else 0,
+        )
+        previous_failure_count = cls._coerce_int(
+            existing_learning.get("failure_count"),
+            1 if str(existing_metadata.get("outcome") or "").lower() == "error" else 0,
+        )
+        previous_mean_score = max(
+            cls._coerce_float(existing_learning.get("mean_score"), existing_score),
+            0.0,
+        )
+        previous_best_score = max(
+            cls._coerce_float(existing_learning.get("best_score"), existing_score),
+            0.0,
+        )
+        previous_mean_retry_count = max(
+            cls._coerce_float(existing_learning.get("mean_retry_count"), cls._execution_metric(existing_metadata, "retry_count")),
+            0.0,
+        )
+        previous_mean_total_tokens = max(
+            cls._coerce_float(existing_learning.get("mean_total_tokens"), cls._execution_metric(existing_metadata, "total_tokens")),
+            0.0,
+        )
+        previous_mean_neighborhood_reuse_rate = cls._clamp(
+            cls._coerce_float(existing_learning.get("mean_neighborhood_reuse_rate"), cls._execution_metric(existing_metadata, "neighborhood_reuse_rate")),
+            0.0,
+            1.0,
+        )
+        previous_mean_plan_reuse_rate = cls._clamp(
+            cls._coerce_float(existing_learning.get("mean_plan_reuse_rate"), cls._execution_metric(existing_metadata, "plan_reuse_rate")),
+            0.0,
+            1.0,
+        )
+
+        incoming_learning = cls._learning_snapshot(incoming_metadata, incoming_score)
+        observations = previous_observations + incoming_learning["observations"]
+        success_count = previous_success_count + incoming_learning["success_count"]
+        failure_count = previous_failure_count + incoming_learning["failure_count"]
+        mean_score = cls._weighted_mean(previous_mean_score, previous_observations, incoming_learning["mean_score"])
+        mean_retry_count = cls._weighted_mean(previous_mean_retry_count, previous_observations, incoming_learning["mean_retry_count"])
+        mean_total_tokens = cls._weighted_mean(previous_mean_total_tokens, previous_observations, incoming_learning["mean_total_tokens"])
+        mean_neighborhood_reuse_rate = cls._weighted_mean(
+            previous_mean_neighborhood_reuse_rate,
+            previous_observations,
+            incoming_learning["mean_neighborhood_reuse_rate"],
+        )
+        mean_plan_reuse_rate = cls._weighted_mean(
+            previous_mean_plan_reuse_rate,
+            previous_observations,
+            incoming_learning["mean_plan_reuse_rate"],
+        )
+
+        merged = {
+            **existing_metadata,
+            **incoming_metadata,
+            "learning": {
+                "observations": observations,
+                "success_count": success_count,
+                "failure_count": failure_count,
+                "success_rate": round(success_count / observations, 4) if observations else 0.0,
+                "mean_score": round(mean_score, 4),
+                "best_score": round(max(previous_best_score, incoming_learning["best_score"]), 4),
+                "mean_retry_count": round(mean_retry_count, 4),
+                "mean_total_tokens": round(mean_total_tokens, 4),
+                "mean_neighborhood_reuse_rate": round(cls._clamp(mean_neighborhood_reuse_rate, 0.0, 1.0), 4),
+                "mean_plan_reuse_rate": round(cls._clamp(mean_plan_reuse_rate, 0.0, 1.0), 4),
+            },
+        }
+        return merged
+
+    @classmethod
+    def _learning_rank(cls, metadata: Dict[str, Any], score: float, execution_count: int) -> float:
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        learning = metadata.get("learning")
+        if not isinstance(learning, dict):
+            learning = {}
+
+        observations = cls._coerce_int(
+            learning.get("observations"),
+            max(execution_count, 1 if metadata else 0),
+        )
+        if observations <= 0:
+            return 0.0
+
+        success_count = cls._coerce_int(
+            learning.get("success_count"),
+            1 if str(metadata.get("outcome") or "").lower() == "success" else 0,
+        )
+        success_rate = cls._clamp(
+            cls._coerce_float(learning.get("success_rate"), success_count / observations if observations else 0.0),
+            0.0,
+            1.0,
+        )
+        mean_score = cls._clamp(cls._coerce_float(learning.get("mean_score"), score), 0.0, 1.0)
+        mean_retry_count = max(
+            cls._coerce_float(learning.get("mean_retry_count"), cls._execution_metric(metadata, "retry_count")),
+            0.0,
+        )
+        mean_total_tokens = max(
+            cls._coerce_float(learning.get("mean_total_tokens"), cls._execution_metric(metadata, "total_tokens")),
+            0.0,
+        )
+        mean_neighborhood_reuse_rate = cls._clamp(
+            cls._coerce_float(learning.get("mean_neighborhood_reuse_rate"), cls._execution_metric(metadata, "neighborhood_reuse_rate")),
+            0.0,
+            1.0,
+        )
+        mean_plan_reuse_rate = cls._clamp(
+            cls._coerce_float(learning.get("mean_plan_reuse_rate"), cls._execution_metric(metadata, "plan_reuse_rate")),
+            0.0,
+            1.0,
+        )
+
+        evidence_strength = min(observations, 5) / 5
+        retry_efficiency = 1 / (1 + mean_retry_count)
+        token_efficiency = 1 / (1 + (mean_total_tokens / 800.0))
+        efficiency = (retry_efficiency + token_efficiency) / 2
+        reuse = (mean_neighborhood_reuse_rate + mean_plan_reuse_rate) / 2
+        stability = (0.65 * success_rate) + (0.35 * mean_score)
+        learning_rank = evidence_strength * ((0.8 * stability) + (0.2 * ((0.7 * efficiency) + (0.3 * reuse))))
+        return round(max(learning_rank, 0.0), 4)
+
+    @staticmethod
     def _vector_cosine_similarity(query_emb: List[float], embeddings: List[List[float]]) -> List[float]:
         if not query_emb or not embeddings:
             return []
@@ -172,19 +370,55 @@ class OrchestrationRegistry:
         """
         embedding = self._get_embedding(task_description)
         embedding_json = json.dumps(embedding)
-        
-        metadata_json = json.dumps(metadata or {})
+
+        metadata = dict(metadata or {})
 
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO scripts (task_description, script_content, embedding, metadata, score)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (task_description, script_content, embedding_json, metadata_json, score))
-            script_id = cursor.lastrowid
-            self._store_atom_payloads(cursor, script_id, atom_payloads or [])
-            self._store_plan_motifs(cursor, script_id, metadata or {})
+                SELECT id, metadata, score, execution_count
+                FROM scripts
+                WHERE task_description = ? AND script_content = ?
+                ORDER BY id DESC
+                LIMIT 1
+            ''', (task_description, script_content))
+            existing = cursor.fetchone()
+
+            if existing:
+                script_id, existing_metadata_json, existing_score, existing_execution_count = existing
+                existing_metadata = json.loads(existing_metadata_json or "{}")
+                merged_metadata = self._merge_metadata(
+                    existing_metadata,
+                    metadata,
+                    existing_score=float(existing_score or 0.0),
+                    incoming_score=score,
+                    existing_execution_count=int(existing_execution_count or 0),
+                )
+                merged_score = float((merged_metadata.get("learning") or {}).get("mean_score", score) or score)
+                cursor.execute('''
+                    UPDATE scripts
+                    SET metadata = ?, score = ?, execution_count = execution_count + 1, last_used_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (json.dumps(merged_metadata), merged_score, script_id))
+
+                cursor.execute("SELECT COUNT(*) FROM script_atoms WHERE script_id = ?", (script_id,))
+                if int(cursor.fetchone()[0] or 0) == 0 and atom_payloads:
+                    self._store_atom_payloads(cursor, script_id, atom_payloads or [])
+
+                cursor.execute("SELECT COUNT(*) FROM plan_motifs WHERE script_id = ?", (script_id,))
+                if int(cursor.fetchone()[0] or 0) == 0:
+                    self._store_plan_motifs(cursor, script_id, merged_metadata)
+            else:
+                prepared_metadata = self._merge_metadata({}, metadata, existing_score=0.0, incoming_score=score, existing_execution_count=0)
+                cursor.execute('''
+                    INSERT INTO scripts (task_description, script_content, embedding, metadata, score, execution_count)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (task_description, script_content, embedding_json, json.dumps(prepared_metadata), score, 1))
+                script_id = cursor.lastrowid
+                self._store_atom_payloads(cursor, script_id, atom_payloads or [])
+                self._store_plan_motifs(cursor, script_id, prepared_metadata)
+
             conn.commit()
             return script_id
         finally:
@@ -380,27 +614,32 @@ class OrchestrationRegistry:
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, task_description, script_content, embedding, metadata, score FROM scripts")
+            cursor.execute("SELECT id, task_description, script_content, embedding, metadata, score, execution_count FROM scripts")
             
             for row in cursor.fetchall():
-                row_id, desc, content, emb_str, metadata_str, score = row
+                row_id, desc, content, emb_str, metadata_str, score, execution_count = row
                 if not emb_str:
                     continue
                 emb = json.loads(emb_str)
                 sim = cosine_similarity(query_emb, emb)
+                metadata = json.loads(metadata_str or "{}")
+                learning_rank = self._learning_rank(metadata, float(score or 0.0), int(execution_count or 0))
+                retrieval_score = (0.80 * sim) + (0.20 * learning_rank)
                 results.append({
                     "id": row_id,
                     "task_description": desc,
                     "script_content": content,
-                    "metadata": json.loads(metadata_str or "{}"),
+                    "metadata": metadata,
                     "score": score,
-                    "similarity": sim
+                    "execution_count": int(execution_count or 0),
+                    "similarity": sim,
+                    "learning_rank": learning_rank,
+                    "retrieval_score": retrieval_score,
                 })
         finally:
             conn.close()
                 
-        # Sort by similarity
-        results.sort(key=lambda x: x["similarity"], reverse=True)
+        results.sort(key=lambda x: (x["retrieval_score"], x["similarity"]), reverse=True)
         return results[:top_k]
 
     def get_script_atoms(self, script_id: int) -> List[Dict[str, Any]]:

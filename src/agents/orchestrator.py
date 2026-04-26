@@ -442,6 +442,7 @@ class OrchestratorAgent(BaseAgent):
             candidate_upper_bound = self._candidate_upper_bound(
                 code,
                 mode,
+                similar_rows,
                 neighborhood_rows,
                 plan_rows,
             )
@@ -500,6 +501,7 @@ class OrchestratorAgent(BaseAgent):
         self,
         code: str,
         mode: _CandidateMode,
+        similar_rows: Optional[List[Dict[str, Any]]] = None,
         neighborhood_rows: Optional[List[Dict[str, Any]]] = None,
         plan_rows: Optional[List[Dict[str, Any]]] = None,
     ) -> float:
@@ -523,6 +525,8 @@ class OrchestratorAgent(BaseAgent):
         if len(code) > 12_000:
             upper_bound -= (len(code) - 12_000) / 4_000
 
+        upper_bound += self._registry_prior_upper_bound(similar_rows or [])
+
         graph_prior, _ = self._graph_prior(plan, neighborhood_rows or [], plan_rows or [])
         upper_bound += graph_prior
 
@@ -530,6 +534,27 @@ class OrchestratorAgent(BaseAgent):
             upper_bound += 0.10
 
         return upper_bound
+
+    def _registry_prior_upper_bound(self, similar_rows: List[Dict[str, Any]]) -> float:
+        if not similar_rows:
+            return 0.0
+
+        best_similarity = max(float(row.get("similarity", 0.0) or 0.0) for row in similar_rows)
+        best_quality = max(max(float(row.get("score", 0.0) or 0.0), 0.0) for row in similar_rows)
+        max_atom_richness = max(self._row_atom_richness(row) for row in similar_rows)
+        max_learning_rank = max(
+            max(float(row.get("learning_rank", 0.0) or 0.0), 0.0)
+            for row in similar_rows
+        )
+
+        return (
+            (0.15 * best_similarity)
+            + (0.15 * min(best_quality, 1.0))
+            + 0.15
+            + 0.15
+            + (0.15 * max_atom_richness)
+            + (0.25 * min(max_learning_rank, 1.0))
+        )
 
     @staticmethod
     def _estimate_atomization_cost(plan: Any, code_len: int) -> float:
@@ -790,6 +815,7 @@ class OrchestratorAgent(BaseAgent):
                 "registry_expert_overlap": 0.0,
                 "registry_parallel_alignment": 0.0,
                 "registry_atom_alignment": 0.0,
+                "registry_learning_alignment": 0.0,
             }
 
         best_similarity = max(float(r.get("similarity", 0.0)) for r in similar_rows)
@@ -801,6 +827,7 @@ class OrchestratorAgent(BaseAgent):
         overlap_scores: List[float] = []
         parallel_scores: List[float] = []
         atom_scores: List[float] = []
+        learning_scores: List[float] = []
 
         for row in similar_rows:
             past_experts = self._row_experts(row)
@@ -810,19 +837,33 @@ class OrchestratorAgent(BaseAgent):
                 if union:
                     overlap = len(target & past_experts) / len(union)
             overlap_scores.append(overlap)
-            parallel_scores.append(self._parallel_alignment(plan, row))
-            atom_scores.append(self._row_atom_richness(row) * overlap)
+            parallel_alignment = self._parallel_alignment(plan, row)
+            atom_alignment = self._row_atom_richness(row) * overlap
+            parallel_scores.append(parallel_alignment)
+            atom_scores.append(atom_alignment)
+
+            try:
+                learning_rank = max(float(row.get("learning_rank", 0.0) or 0.0), 0.0)
+            except (TypeError, ValueError):
+                learning_rank = 0.0
+
+            structural_alignment = (overlap + parallel_alignment + atom_alignment) / 3 if any(
+                value > 0.0 for value in (overlap, parallel_alignment, atom_alignment)
+            ) else 0.0
+            learning_scores.append(learning_rank * structural_alignment)
 
         expert_overlap = sum(overlap_scores) / len(overlap_scores) if overlap_scores else 0.0
         parallel_alignment = sum(parallel_scores) / len(parallel_scores) if parallel_scores else 0.0
         atom_alignment = sum(atom_scores) / len(atom_scores) if atom_scores else 0.0
+        learning_alignment = max(learning_scores) if learning_scores else 0.0
 
         total = (
-            (0.20 * best_similarity)
-            + (0.20 * avg_quality)
-            + (0.20 * expert_overlap)
-            + (0.20 * parallel_alignment)
-            + (0.20 * atom_alignment)
+            (0.15 * best_similarity)
+            + (0.15 * avg_quality)
+            + (0.15 * expert_overlap)
+            + (0.15 * parallel_alignment)
+            + (0.15 * atom_alignment)
+            + (0.25 * learning_alignment)
         )
         return total, {
             "registry_similarity": round(best_similarity, 4),
@@ -830,6 +871,7 @@ class OrchestratorAgent(BaseAgent):
             "registry_expert_overlap": round(expert_overlap, 4),
             "registry_parallel_alignment": round(parallel_alignment, 4),
             "registry_atom_alignment": round(atom_alignment, 4),
+            "registry_learning_alignment": round(learning_alignment, 4),
         }
     
     def _extract_code(self, response: str) -> str:
@@ -917,14 +959,43 @@ class CodeExecutionAgent(AsyncBaseAgent):
         plan: Any,
         trace: Optional[List[Dict[str, Any]]] = None,
         selected_experts: Optional[List[str]] = None,
+        execution_metrics: Optional[Dict[str, Any]] = None,
         error: str = "",
     ) -> Dict[str, Any]:
         return {
             "selected_experts": list(selected_experts or []),
             "execution_plan": plan.to_dict(),
             "trace_summary": self._summarize_trace(trace or []),
+            "execution_metrics": dict(execution_metrics or {}),
             "outcome": "error" if error else "success",
             "error": error,
+        }
+
+    @staticmethod
+    def _build_execution_metrics(
+        state: MoEState,
+        *,
+        iterations: int,
+        token_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        metadata = state.get("metadata") or {}
+        retrieval = metadata.get("retrieval") if isinstance(metadata, dict) else {}
+        if not isinstance(retrieval, dict):
+            retrieval = {}
+
+        def _coerce_float(value: Any) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return 0.0
+
+        return {
+            "retry_count": max(int(iterations or 0), 0),
+            "total_tokens": int(token_summary.get("total_tokens", 0) or 0),
+            "prompt_tokens": int(token_summary.get("prompt_tokens", 0) or 0),
+            "completion_tokens": int(token_summary.get("completion_tokens", 0) or 0),
+            "neighborhood_reuse_rate": max(min(_coerce_float(retrieval.get("neighborhood_reuse_rate")), 1.0), 0.0),
+            "plan_reuse_rate": max(min(_coerce_float(retrieval.get("plan_reuse_rate")), 1.0), 0.0),
         }
 
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
@@ -945,6 +1016,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
             execution_result = await self.sandbox.execute(code)
             trace = execution_result.get("trace", [])
             atom_payloads = self._extract_atom_payloads(trace)
+            token_summary = get_token_tracker().summary()
+            execution_metrics = self._build_execution_metrics(
+                state,
+                iterations=iterations,
+                token_summary=token_summary,
+            )
 
             # Start returning state early so scorer can use it
             temp_state = {
@@ -964,6 +1041,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                     plan=plan,
                     trace=trace,
                     selected_experts=execution_result["selected_experts"],
+                    execution_metrics=execution_metrics,
                 ),
                 atom_payloads=atom_payloads,
             )
@@ -986,7 +1064,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "code_execution_error": "",
                 "code_execution_iterations": iterations + 1,
                 "execution_plan": plan.to_dict(),
-                "token_usage": get_token_tracker().summary(),
+                "token_usage": token_summary,
                 "reasoning_steps": [self._log_step(
                     action="Executed Code Successfully",
                     details={
@@ -997,6 +1075,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 )]
             }
         except Exception as e:
+            token_summary = get_token_tracker().summary()
+            execution_metrics = self._build_execution_metrics(
+                state,
+                iterations=iterations,
+                token_summary=token_summary,
+            )
             await get_tracer().emit(TraceEvent(
                 kind=TraceKind.SANDBOX_ERROR.value, agent=self.name,
                 data={"error": str(e)},
@@ -1010,6 +1094,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 metadata=self._build_registry_metadata(
                     plan=plan,
                     selected_experts=[],
+                    execution_metrics=execution_metrics,
                     error=str(e),
                 ),
             )
@@ -1024,7 +1109,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                         "error": str(e),
                     },
                 },
-                "token_usage": get_token_tracker().summary(),
+                "token_usage": token_summary,
                 "reasoning_steps": [self._log_step(
                     action="Code Execution Failed",
                     details={"error": str(e)}

@@ -543,6 +543,83 @@ async def orchestrate():
     assert compact_score > fragmented_score
 
 
+@pytest.mark.asyncio
+async def test_candidate_search_prefers_higher_learned_registry_alignment(monkeypatch):
+    similar_rows = [
+        {
+            "task_description": "compare systems with creative analogy",
+            "script_content": "async def orchestrate():\n    return 'creative'\n",
+            "score": 0.9,
+            "similarity": 0.96,
+            "learning_rank": 0.0,
+            "metadata": {
+                "selected_experts": ["technical", "creative"],
+                "execution_plan": {
+                    "experts_used": ["technical", "creative"],
+                    "has_sequential": False,
+                    "has_parallel": True,
+                    "gather_groups": 1,
+                    "calls": [],
+                },
+                "trace_summary": {"atom_count_total": 6, "response_formats": ["semantic_atoms"]},
+            },
+        },
+        {
+            "task_description": "compare systems analytically",
+            "script_content": "async def orchestrate():\n    return 'analytical'\n",
+            "score": 0.9,
+            "similarity": 0.96,
+            "learning_rank": 0.9,
+            "metadata": {
+                "selected_experts": ["technical", "analytical"],
+                "execution_plan": {
+                    "experts_used": ["technical", "analytical"],
+                    "has_sequential": False,
+                    "has_parallel": True,
+                    "gather_groups": 1,
+                    "calls": [],
+                },
+                "trace_summary": {"atom_count_total": 6, "response_formats": ["semantic_atoms"]},
+            },
+        },
+    ]
+
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda *args, **kwargs: DummyRegistry(similar_rows),
+    )
+
+    candidate_a = """```python
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    creative_task = query_agent('creative', 'Offer an analogy')
+    technical_summary, creative_summary = await asyncio.gather(technical_task, creative_task)
+    return technical_summary.text + creative_summary.text
+```"""
+
+    candidate_b = """```python
+async def orchestrate():
+    technical_task = query_agent('technical', 'Explain architecture')
+    analytical_task = query_agent('analytical', 'Compare alternatives')
+    technical_summary, analytical_summary = await asyncio.gather(technical_task, analytical_task)
+    return technical_summary.text + analytical_summary.text
+```"""
+
+    llm = StubLLM([candidate_a, candidate_b])
+    agent = OrchestratorAgent(
+        llm_provider=llm,
+        available_experts=["technical", "analytical", "creative"],
+        candidate_count=2,
+    )
+
+    state = create_initial_state("Compare two database architectures")
+    result = await agent.execute(state)
+
+    assert "analytical" in result["generated_code"]
+    selection = result["reasoning_steps"][0]["details"]["selection"]
+    assert selection["selected_features"]["registry_learning_alignment"] > 0.2
+
+
 def test_graph_prior_rewards_candidates_matching_retrieved_structure(monkeypatch):
     monkeypatch.setattr(
         "src.agents.orchestrator.OrchestrationRegistry",
