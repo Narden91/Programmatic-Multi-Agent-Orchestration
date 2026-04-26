@@ -35,6 +35,24 @@ class OrchestrationRegistry:
                     last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS script_atoms (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    script_id INTEGER NOT NULL,
+                    span_name TEXT,
+                    agent_type TEXT,
+                    response_format TEXT,
+                    atom_index INTEGER NOT NULL,
+                    atom_id TEXT,
+                    content_hash TEXT,
+                    confidence REAL DEFAULT 0.0,
+                    dependencies TEXT DEFAULT '[]',
+                    evidence_tags TEXT DEFAULT '[]',
+                    payload TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
+                )
+            ''')
             self._ensure_column(cursor, "scripts", "metadata", "TEXT DEFAULT '{}' ")
             conn.commit()
         finally:
@@ -59,6 +77,7 @@ class OrchestrationRegistry:
         script_content: str,
         score: float = 0.0,
         metadata: Optional[Dict[str, Any]] = None,
+        atom_payloads: Optional[List[Dict[str, Any]]] = None,
     ) -> int:
         """
         Store a successful script in the registry.
@@ -80,10 +99,68 @@ class OrchestrationRegistry:
                 INSERT INTO scripts (task_description, script_content, embedding, metadata, score)
                 VALUES (?, ?, ?, ?, ?)
             ''', (task_description, script_content, embedding_json, metadata_json, score))
+            script_id = cursor.lastrowid
+            self._store_atom_payloads(cursor, script_id, atom_payloads or [])
             conn.commit()
-            return cursor.lastrowid
+            return script_id
         finally:
             conn.close()
+
+    @staticmethod
+    def _store_atom_payloads(
+        cursor: sqlite3.Cursor,
+        script_id: int,
+        atom_payloads: List[Dict[str, Any]],
+    ) -> None:
+        for atom_payload in atom_payloads:
+            if not isinstance(atom_payload, dict):
+                continue
+
+            payload = atom_payload.get("payload")
+            if not isinstance(payload, dict):
+                continue
+
+            dependencies = payload.get("dependencies") or []
+            if not isinstance(dependencies, list):
+                dependencies = []
+
+            evidence_tags = payload.get("evidence_tags") or []
+            if not isinstance(evidence_tags, list):
+                evidence_tags = []
+
+            try:
+                confidence = float(payload.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                confidence = 0.0
+
+            cursor.execute('''
+                INSERT INTO script_atoms (
+                    script_id,
+                    span_name,
+                    agent_type,
+                    response_format,
+                    atom_index,
+                    atom_id,
+                    content_hash,
+                    confidence,
+                    dependencies,
+                    evidence_tags,
+                    payload
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                script_id,
+                str(atom_payload.get("span_name") or ""),
+                str(atom_payload.get("agent_type") or ""),
+                str(atom_payload.get("response_format") or "plain_text"),
+                int(atom_payload.get("atom_index") or 0),
+                str(payload.get("atom_id") or ""),
+                str(payload.get("content_hash") or ""),
+                confidence,
+                json.dumps(dependencies),
+                json.dumps(evidence_tags),
+                json.dumps(payload),
+            ))
 
     def search(self, query: str, top_k: int = 1) -> List[Dict[str, Any]]:
         """
@@ -133,6 +210,49 @@ class OrchestrationRegistry:
         # Sort by similarity
         results.sort(key=lambda x: x["similarity"], reverse=True)
         return results[:top_k]
+
+    def get_script_atoms(self, script_id: int) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT span_name, agent_type, response_format, atom_index, atom_id, content_hash,
+                       confidence, dependencies, evidence_tags, payload
+                FROM script_atoms
+                WHERE script_id = ?
+                ORDER BY id ASC
+            ''', (script_id,))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        atoms: List[Dict[str, Any]] = []
+        for row in rows:
+            (
+                span_name,
+                agent_type,
+                response_format,
+                atom_index,
+                atom_id,
+                content_hash,
+                confidence,
+                dependencies,
+                evidence_tags,
+                payload,
+            ) = row
+            atoms.append({
+                "span_name": span_name,
+                "agent_type": agent_type,
+                "response_format": response_format,
+                "atom_index": atom_index,
+                "atom_id": atom_id,
+                "content_hash": content_hash,
+                "confidence": confidence,
+                "dependencies": json.loads(dependencies or "[]"),
+                "evidence_tags": json.loads(evidence_tags or "[]"),
+                "payload": json.loads(payload or "{}"),
+            })
+        return atoms
         
     def update_score(self, script_id: int, new_score: float):
         """Update the score and usage metrics of an existing script."""

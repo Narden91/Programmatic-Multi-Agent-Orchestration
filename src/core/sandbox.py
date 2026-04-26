@@ -223,13 +223,15 @@ class CodeSandbox:
                 # to instruct the orchestrator to use result.text.
                 result = await real_query_agent(agent_type, prompt, context_ids)
                 self._call_log[agent_type] = result.text
+                atoms = [atom.to_dict() for atom in getattr(result, "atoms", [])]
                 
                 self.tracer.end_span(
                     span,
                     outputs={
                         "text": result.text,
-                        "atom_count": len(getattr(result, "atoms", [])),
+                        "atom_count": len(atoms),
                         "response_format": result.metadata.get("response_format", "plain_text"),
+                        "atoms": atoms,
                     },
                     metrics={"tokens": result.token_count},
                 )

@@ -44,3 +44,51 @@ def test_store_and_search_preserves_metadata(temp_registry):
     assert results[0]["metadata"]["selected_experts"] == ["technical"]
     assert results[0]["metadata"]["trace_summary"]["atom_count_total"] == 2
 
+
+def test_store_and_fetch_full_atom_payloads(temp_registry):
+    script_id = temp_registry.store_script(
+        "Explain binary search",
+        "async def orchestrate(): return 'ok'",
+        score=0.9,
+        atom_payloads=[
+            {
+                "span_name": "query_agent_technical",
+                "agent_type": "technical",
+                "response_format": "semantic_atoms",
+                "atom_index": 0,
+                "payload": {
+                    "atom_id": "bs-1",
+                    "text": "Binary search halves the interval.",
+                    "confidence": 0.93,
+                    "dependencies": [],
+                    "evidence_tags": ["algorithm"],
+                    "metadata": {"source": "unit-test"},
+                    "content_hash": "abcd1234",
+                },
+            },
+            {
+                "span_name": "query_agent_technical",
+                "agent_type": "technical",
+                "response_format": "semantic_atoms",
+                "atom_index": 1,
+                "payload": {
+                    "atom_id": "bs-2",
+                    "text": "It requires sorted data.",
+                    "confidence": 0.98,
+                    "dependencies": ["bs-1"],
+                    "evidence_tags": ["precondition"],
+                    "metadata": {"source": "unit-test"},
+                    "content_hash": "efgh5678",
+                },
+            },
+        ],
+    )
+
+    atoms = temp_registry.get_script_atoms(script_id)
+
+    assert len(atoms) == 2
+    assert atoms[0]["agent_type"] == "technical"
+    assert atoms[0]["payload"]["text"] == "Binary search halves the interval."
+    assert atoms[1]["dependencies"] == ["bs-1"]
+    assert atoms[1]["payload"]["metadata"]["source"] == "unit-test"
+

@@ -11,12 +11,13 @@ class _CaptureRegistry:
     def __init__(self):
         self.calls = []
 
-    def store_script(self, task_description, script_content, score=0.0, metadata=None):
+    def store_script(self, task_description, script_content, score=0.0, metadata=None, atom_payloads=None):
         self.calls.append({
             "task_description": task_description,
             "script_content": script_content,
             "score": score,
             "metadata": metadata or {},
+            "atom_payloads": atom_payloads or [],
         })
         return 1
 
@@ -42,7 +43,33 @@ async def test_code_execution_agent_stores_trace_summary_metadata():
         "trace": [
             {
                 "type": "agent",
-                "outputs": {"text": "Binary search summary.", "atom_count": 2, "response_format": "semantic_atoms"},
+                "name": "query_agent_technical",
+                "inputs": {"agent_type": "technical", "prompt": "Explain binary search"},
+                "outputs": {
+                    "text": "Binary search summary.",
+                    "atom_count": 2,
+                    "response_format": "semantic_atoms",
+                    "atoms": [
+                        {
+                            "atom_id": "bs-1",
+                            "text": "Binary search halves the interval.",
+                            "confidence": 0.93,
+                            "dependencies": [],
+                            "evidence_tags": ["algorithm"],
+                            "metadata": {},
+                            "content_hash": "abcd1234",
+                        },
+                        {
+                            "atom_id": "bs-2",
+                            "text": "It requires sorted data.",
+                            "confidence": 0.98,
+                            "dependencies": ["bs-1"],
+                            "evidence_tags": ["precondition"],
+                            "metadata": {},
+                            "content_hash": "efgh5678",
+                        },
+                    ],
+                },
             }
         ],
     })
@@ -55,3 +82,5 @@ async def test_code_execution_agent_stores_trace_summary_metadata():
     assert saved["selected_experts"] == ["technical"]
     assert saved["trace_summary"]["atom_count_total"] == 2
     assert saved["trace_summary"]["response_formats"] == ["semantic_atoms"]
+    assert len(capture.calls[0]["atom_payloads"]) == 2
+    assert capture.calls[0]["atom_payloads"][1]["payload"]["dependencies"] == ["bs-1"]

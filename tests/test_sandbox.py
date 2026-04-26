@@ -78,3 +78,5 @@ async def orchestrate():
     assert res["result"] == "2:bs-1:Binary search summary."
     assert res["trace"][0]["outputs"]["atom_count"] == 2
     assert res["trace"][0]["outputs"]["response_format"] == "semantic_atoms"
+    assert res["trace"][0]["outputs"]["atoms"][1]["dependencies"] == ["bs-1"]
+    assert res["trace"][0]["outputs"]["atoms"][0]["atom_id"] == "bs-1"

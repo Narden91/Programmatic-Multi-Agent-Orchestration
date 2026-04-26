@@ -195,7 +195,7 @@ class OrchestratorAgent(BaseAgent):
         if code_len > 12_000:
             score -= (code_len - 12_000) / 4_000
 
-        prior_boost = self._registry_prior(plan.experts_used, similar_rows)
+        prior_boost, prior_details = self._registry_prior(plan, similar_rows)
         score += prior_boost
 
         return score, {
@@ -204,37 +204,132 @@ class OrchestratorAgent(BaseAgent):
             "parallel_groups": parallel_groups,
             "code_length": code_len,
             "registry_prior": round(prior_boost, 4),
+            **prior_details,
         }
+
+    @staticmethod
+    def _row_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict):
+            return metadata
+        return {}
+
+    def _row_experts(self, row: Dict[str, Any]) -> set[str]:
+        metadata = self._row_metadata(row)
+        selected_experts = metadata.get("selected_experts") or []
+        if isinstance(selected_experts, list) and selected_experts:
+            return {str(item) for item in selected_experts}
+
+        plan_data = metadata.get("execution_plan")
+        if isinstance(plan_data, dict):
+            experts_used = plan_data.get("experts_used") or []
+            if isinstance(experts_used, list) and experts_used:
+                return {str(item) for item in experts_used}
+
+        src = row.get("script_content", "")
+        if not src:
+            return set()
+        return set(analyze_code(src).experts_used)
+
+    @staticmethod
+    def _parallel_groups_from_plan(plan: Any) -> int:
+        if isinstance(plan, dict):
+            try:
+                groups = int(plan.get("gather_groups") or 0)
+            except (TypeError, ValueError):
+                groups = 0
+            if groups <= 0 and plan.get("has_parallel"):
+                return 1
+            return max(groups, 0)
+
+        groups = int(getattr(plan, "gather_groups", 0) or 0)
+        if groups <= 0 and getattr(plan, "has_parallel", False):
+            return 1
+        return max(groups, 0)
+
+    def _parallel_alignment(self, candidate_plan: Any, row: Dict[str, Any]) -> float:
+        candidate_groups = self._parallel_groups_from_plan(candidate_plan)
+        if candidate_groups <= 0:
+            return 0.0
+
+        row_plan = self._row_metadata(row).get("execution_plan") or {}
+        row_groups = self._parallel_groups_from_plan(row_plan)
+        if row_groups <= 0:
+            return 0.0
+
+        return min(candidate_groups, row_groups) / max(candidate_groups, row_groups)
+
+    def _row_atom_richness(self, row: Dict[str, Any]) -> float:
+        trace_summary = self._row_metadata(row).get("trace_summary") or {}
+
+        try:
+            atom_count = int(trace_summary.get("atom_count_total", 0) or 0)
+        except (TypeError, ValueError):
+            atom_count = 0
+
+        richness = min(atom_count, 8) / 8 if atom_count > 0 else 0.0
+        response_formats = trace_summary.get("response_formats") or []
+        if isinstance(response_formats, list) and any(
+            fmt in {"semantic_atom", "semantic_atoms"}
+            for fmt in response_formats
+        ):
+            richness = max(richness, 0.5)
+
+        return richness
 
     def _registry_prior(
         self,
-        experts_used: List[str],
+        plan: Any,
         similar_rows: List[Dict[str, Any]],
-    ) -> float:
+    ) -> tuple[float, Dict[str, Any]]:
         if not similar_rows:
-            return 0.0
+            return 0.0, {
+                "registry_similarity": 0.0,
+                "registry_quality": 0.0,
+                "registry_expert_overlap": 0.0,
+                "registry_parallel_alignment": 0.0,
+                "registry_atom_alignment": 0.0,
+            }
 
         best_similarity = max(float(r.get("similarity", 0.0)) for r in similar_rows)
         avg_quality = sum(
             max(float(r.get("score", 0.0)), 0.0) for r in similar_rows
         ) / len(similar_rows)
 
+        target = set(getattr(plan, "experts_used", []) or [])
         overlap_scores: List[float] = []
-        target = set(experts_used)
-        if target:
-            for row in similar_rows:
-                src = row.get("script_content", "")
-                if not src:
-                    continue
-                past_experts = set(analyze_code(src).experts_used)
-                if not past_experts:
-                    continue
+        parallel_scores: List[float] = []
+        atom_scores: List[float] = []
+
+        for row in similar_rows:
+            past_experts = self._row_experts(row)
+            overlap = 0.0
+            if target and past_experts:
                 union = target | past_experts
-                overlap_scores.append(len(target & past_experts) / len(union))
+                if union:
+                    overlap = len(target & past_experts) / len(union)
+            overlap_scores.append(overlap)
+            parallel_scores.append(self._parallel_alignment(plan, row))
+            atom_scores.append(self._row_atom_richness(row) * overlap)
 
         expert_overlap = sum(overlap_scores) / len(overlap_scores) if overlap_scores else 0.0
+        parallel_alignment = sum(parallel_scores) / len(parallel_scores) if parallel_scores else 0.0
+        atom_alignment = sum(atom_scores) / len(atom_scores) if atom_scores else 0.0
 
-        return (0.35 * best_similarity) + (0.35 * avg_quality) + (0.30 * expert_overlap)
+        total = (
+            (0.20 * best_similarity)
+            + (0.20 * avg_quality)
+            + (0.20 * expert_overlap)
+            + (0.20 * parallel_alignment)
+            + (0.20 * atom_alignment)
+        )
+        return total, {
+            "registry_similarity": round(best_similarity, 4),
+            "registry_quality": round(avg_quality, 4),
+            "registry_expert_overlap": round(expert_overlap, 4),
+            "registry_parallel_alignment": round(parallel_alignment, 4),
+            "registry_atom_alignment": round(atom_alignment, 4),
+        }
     
     def _extract_code(self, response: str) -> str:
         match = re.search(r'```python\n(.*?)\n```', response, re.DOTALL)
@@ -271,7 +366,8 @@ class CodeExecutionAgent(AsyncBaseAgent):
     def _summarize_trace(self, trace: List[Dict[str, Any]]) -> Dict[str, Any]:
         agent_spans = [item for item in trace if item.get("type") == "agent"]
         atom_counts = [
-            int((item.get("outputs") or {}).get("atom_count", 0))
+            len((item.get("outputs") or {}).get("atoms") or [])
+            or int((item.get("outputs") or {}).get("atom_count", 0))
             for item in agent_spans
         ]
         response_formats = sorted({
@@ -284,6 +380,34 @@ class CodeExecutionAgent(AsyncBaseAgent):
             "max_atom_count": max(atom_counts) if atom_counts else 0,
             "response_formats": response_formats,
         }
+
+    def _extract_atom_payloads(self, trace: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        atom_payloads: List[Dict[str, Any]] = []
+        for item in trace:
+            if item.get("type") != "agent":
+                continue
+
+            inputs = item.get("inputs") or {}
+            outputs = item.get("outputs") or {}
+            atoms = outputs.get("atoms") or []
+            if not isinstance(atoms, list):
+                continue
+
+            agent_type = str(inputs.get("agent_type") or "")
+            span_name = str(item.get("name") or "")
+            response_format = str(outputs.get("response_format") or "plain_text")
+
+            for atom_index, atom in enumerate(atoms):
+                if not isinstance(atom, dict):
+                    continue
+                atom_payloads.append({
+                    "span_name": span_name,
+                    "agent_type": agent_type,
+                    "response_format": response_format,
+                    "atom_index": atom_index,
+                    "payload": atom,
+                })
+        return atom_payloads
 
     def _build_registry_metadata(
         self,
@@ -317,11 +441,13 @@ class CodeExecutionAgent(AsyncBaseAgent):
 
         try:
             execution_result = await self.sandbox.execute(code)
+            trace = execution_result.get("trace", [])
+            atom_payloads = self._extract_atom_payloads(trace)
 
             # Start returning state early so scorer can use it
             temp_state = {
                 "final_answer": execution_result["result"],
-                "trace_dna": execution_result.get("trace", [])
+                "trace_dna": trace
             }
             
             # Score it async
@@ -334,9 +460,10 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 score=score,
                 metadata=self._build_registry_metadata(
                     plan=plan,
-                    trace=execution_result.get("trace", []),
+                    trace=trace,
                     selected_experts=execution_result["selected_experts"],
                 ),
+                atom_payloads=atom_payloads,
             )
 
             await get_tracer().emit(TraceEvent(
@@ -348,7 +475,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "final_answer": execution_result["result"],
                 "selected_experts": execution_result["selected_experts"],
                 "expert_responses": execution_result["expert_responses"],
-                "trace_dna": execution_result.get("trace", []),
+                "trace_dna": trace,
                 "sandbox_output": execution_result.get("sandbox_output", ""),
                 "metadata": {
                     **state.get("metadata", {}),

@@ -130,3 +130,73 @@ def test_config_rejects_invalid_candidate_count():
 
     with pytest.raises(ValueError, match="ORCHESTRATOR_CANDIDATES"):
         cfg.validate()
+
+
+@pytest.mark.asyncio
+async def test_candidate_search_uses_atom_and_parallel_registry_bias(monkeypatch):
+    similar_rows = [
+        {
+            "task_description": "parallel technical and analytical explanation",
+            "script_content": (
+                "async def orchestrate():\n"
+                "    t_task = query_agent('technical', 'Explain architecture')\n"
+                "    a_task = query_agent('analytical', 'Compare alternatives')\n"
+                "    t, a = await asyncio.gather(t_task, a_task)\n"
+                "    return t.text + a.text\n"
+            ),
+            "score": 0.92,
+            "similarity": 0.96,
+            "metadata": {
+                "selected_experts": ["technical", "analytical"],
+                "execution_plan": {
+                    "experts_used": ["technical", "analytical"],
+                    "has_sequential": False,
+                    "has_parallel": True,
+                    "gather_groups": 1,
+                    "calls": [],
+                },
+                "trace_summary": {
+                    "agent_span_count": 2,
+                    "atom_count_total": 8,
+                    "max_atom_count": 4,
+                    "response_formats": ["semantic_atoms"],
+                },
+            },
+        }
+    ]
+
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda: DummyRegistry(similar_rows),
+    )
+
+    candidate_a = """```python
+async def orchestrate():
+    t = await query_agent('technical', 'Explain architecture')
+    a = await query_agent('analytical', 'Compare alternatives')
+    c = await query_agent('creative', 'Offer an analogy')
+    return t.text + a.text + c.text
+```"""
+
+    candidate_b = """```python
+async def orchestrate():
+    t_task = query_agent('technical', 'Explain architecture')
+    a_task = query_agent('analytical', 'Compare alternatives')
+    t, a = await asyncio.gather(t_task, a_task)
+    return t.text + a.text
+```"""
+
+    llm = StubLLM([candidate_a, candidate_b])
+    agent = OrchestratorAgent(
+        llm_provider=llm,
+        available_experts=["technical", "analytical", "creative"],
+        candidate_count=2,
+    )
+
+    state = create_initial_state("Compare two database architectures")
+    result = await agent.execute(state)
+
+    assert "asyncio.gather" in result["generated_code"]
+    selection = result["reasoning_steps"][0]["details"]["selection"]
+    assert selection["selected_features"]["registry_parallel_alignment"] == 1.0
+    assert selection["selected_features"]["registry_atom_alignment"] > 0.9
