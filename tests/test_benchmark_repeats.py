@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock
+import asyncio
 
 import pytest
 
@@ -97,3 +98,18 @@ def test_pretty_print_shows_family_aggregates_when_present():
     text = report.pretty_print()
 
     assert "FAMILY AGGREGATES" in text
+
+
+@pytest.mark.asyncio
+async def test_run_all_records_cancelled_runs_as_failures():
+    graph = AsyncMock()
+    graph.ainvoke.side_effect = asyncio.CancelledError("rate limit")
+
+    suite = BenchmarkSuite()
+    suite.add(BenchmarkCase(name="cancelled_case", query="Explain caching"))
+
+    report = await suite.run_all(graph)
+
+    assert len(report.results) == 1
+    assert report.results[0].success is False
+    assert "cancelled" in report.results[0].error

@@ -33,6 +33,11 @@ class _AgentMixin:
         """Determine if this agent should skip execution"""
         return False
 
+    @staticmethod
+    def _is_rate_limit_error(error: Exception) -> bool:
+        text = str(error).lower()
+        return "rate_limit_exceeded" in text or "rate limit" in text
+
 
 # ======================================================================
 # Synchronous base (Orchestrator and sync experts)
@@ -67,6 +72,9 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._is_rate_limit_error(e):
+                    logger.error(f"{self.name}: Provider rate limit hit; skipping remaining retries.")
+                    raise Exception(f"{self.name}: provider rate limit exceeded") from e
                 if attempt < self.max_retries - 1:
                     sleep_time = self.retry_delay * (2 ** attempt)
                     logger.info(f"{self.name}: Retrying in {sleep_time}s...")
@@ -92,6 +100,9 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: Async LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._is_rate_limit_error(e):
+                    logger.error(f"{self.name}: Provider rate limit hit; skipping remaining async retries.")
+                    raise Exception(f"{self.name}: provider rate limit exceeded") from e
                 if attempt < self.max_retries - 1:
                     sleep_time = self.retry_delay * (2 ** attempt)
                     logger.info(f"{self.name}: Retrying async in {sleep_time}s...")

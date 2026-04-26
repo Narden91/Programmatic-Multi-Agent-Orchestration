@@ -404,6 +404,15 @@ class BenchmarkSuite:
                         retrieval_metrics=retrieval_metrics,
                         neighborhood_reuse_rate=float(retrieval_metrics.get("neighborhood_reuse_rate", 0.0) or 0.0),
                     ))
+                except asyncio.CancelledError as exc:
+                    elapsed = time.time() - t0
+                    report.results.append(BenchmarkResult(
+                        case=case,
+                        success=False,
+                        elapsed_seconds=elapsed,
+                        error=f"cancelled: {exc}",
+                        repeat_index=repeat_index,
+                    ))
                 except Exception as exc:
                     elapsed = time.time() - t0
                     report.results.append(BenchmarkResult(
