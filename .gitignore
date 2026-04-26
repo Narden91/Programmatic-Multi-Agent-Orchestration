@@ -45,7 +45,7 @@ htmlcov/
 # Agent
 .agent/
 .claude/*
-.github/skills
+.github/*
 
 # V3 Architecture state
 .moe_registry.db

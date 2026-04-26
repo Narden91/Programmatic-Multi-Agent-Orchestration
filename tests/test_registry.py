@@ -25,3 +25,22 @@ def test_store_and_search(temp_registry):
     assert len(results) == 1
     assert "math" in results[0]["script_content"]
     assert results[0]["score"] == 1.0
+
+
+def test_store_and_search_preserves_metadata(temp_registry):
+    temp_registry.store_script(
+        "Explain binary search",
+        "async def orchestrate(): return 'ok'",
+        score=0.9,
+        metadata={
+            "selected_experts": ["technical"],
+            "trace_summary": {"atom_count_total": 2},
+        },
+    )
+
+    results = temp_registry.search("How does binary search work?", top_k=1)
+
+    assert len(results) == 1
+    assert results[0]["metadata"]["selected_experts"] == ["technical"]
+    assert results[0]["metadata"]["trace_summary"]["atom_count_total"] == 2
+

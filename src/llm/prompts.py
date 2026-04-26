@@ -73,7 +73,7 @@ class OrchestratorPrompts:
 User Query: "{query}"
 {context_section}
 You have access to the following async functions (tools) in your sandbox environment:
-- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. Use `.text` on the result (e.g. `res = await query_agent('technical', '...'); print(res.text)`). Available agent_types:
+- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. Default to using `.text` on the result (e.g. `res = await query_agent('technical', '...'); print(res.text)`). When helpful, you may also inspect `res.atoms`, a list of semantic atoms with fields like `atom_id`, `text`, `confidence`, `dependencies`, and `evidence_tags`. Available agent_types:
 {experts_list}
 - memory_store(key: str, text: str, metadata: dict = None) -> str : stores text in ephemeral vector database
 - memory_search(query: str, top_k: int = 5) -> list[dict] : retrieves top_k semantically relevant chunks
@@ -131,7 +131,7 @@ Write the orchestration code for the User Query now:"""
 User Query: "{query}"
 
 Available async functions (tools):
-- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. You MUST access `.text` on the returned AgentResult object! Available agent_types:
+- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. Use `.text` by default on the returned AgentResult object. When it helps, you may inspect `.atoms` for structured semantic claims. Available agent_types:
 {experts_list}
 - memory_store(key: str, text: str, metadata: dict = None) -> str
 - memory_search(query: str, top_k: int = 5) -> list[dict]

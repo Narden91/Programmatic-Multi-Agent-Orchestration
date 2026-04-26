@@ -19,7 +19,8 @@ class OrchestrationRegistry:
         
     def _init_db(self):
         """Initialize the SQLite database schema for the registry."""
-        with sqlite3.connect(self.db_path) as conn:
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS scripts (
@@ -27,13 +28,24 @@ class OrchestrationRegistry:
                     task_description TEXT NOT NULL,
                     script_content TEXT NOT NULL,
                     embedding TEXT,  -- JSON serialized list of floats
+                    metadata TEXT DEFAULT '{}',
                     score REAL DEFAULT 0.0,
                     execution_count INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+            self._ensure_column(cursor, "scripts", "metadata", "TEXT DEFAULT '{}' ")
             conn.commit()
+        finally:
+            conn.close()
+
+    @staticmethod
+    def _ensure_column(cursor: sqlite3.Cursor, table_name: str, column_name: str, column_sql: str) -> None:
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = {row[1] for row in cursor.fetchall()}
+        if column_name not in columns:
+            cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
     def _get_embedding(self, text: str) -> List[float]:
         """Compute the embedding for the given text using sentence-transformers."""
@@ -41,7 +53,13 @@ class OrchestrationRegistry:
             return []  # Fallback if sentence-transformers not available
         return self.model.encode(text).tolist()
 
-    def store_script(self, task_description: str, script_content: str, score: float = 0.0) -> int:
+    def store_script(
+        self,
+        task_description: str,
+        script_content: str,
+        score: float = 0.0,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
         """
         Store a successful script in the registry.
         
@@ -53,14 +71,19 @@ class OrchestrationRegistry:
         embedding = self._get_embedding(task_description)
         embedding_json = json.dumps(embedding)
         
-        with sqlite3.connect(self.db_path) as conn:
+        metadata_json = json.dumps(metadata or {})
+
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO scripts (task_description, script_content, embedding, score)
-                VALUES (?, ?, ?, ?)
-            ''', (task_description, script_content, embedding_json, score))
+                INSERT INTO scripts (task_description, script_content, embedding, metadata, score)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (task_description, script_content, embedding_json, metadata_json, score))
             conn.commit()
             return cursor.lastrowid
+        finally:
+            conn.close()
 
     def search(self, query: str, top_k: int = 1) -> List[Dict[str, Any]]:
         """
@@ -85,12 +108,13 @@ class OrchestrationRegistry:
             return dot / (norm1 * norm2)
 
         results = []
-        with sqlite3.connect(self.db_path) as conn:
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
-            cursor.execute("SELECT id, task_description, script_content, embedding, score FROM scripts")
+            cursor.execute("SELECT id, task_description, script_content, embedding, metadata, score FROM scripts")
             
             for row in cursor.fetchall():
-                row_id, desc, content, emb_str, score = row
+                row_id, desc, content, emb_str, metadata_str, score = row
                 if not emb_str:
                     continue
                 emb = json.loads(emb_str)
@@ -99,9 +123,12 @@ class OrchestrationRegistry:
                     "id": row_id,
                     "task_description": desc,
                     "script_content": content,
+                    "metadata": json.loads(metadata_str or "{}"),
                     "score": score,
                     "similarity": sim
                 })
+        finally:
+            conn.close()
                 
         # Sort by similarity
         results.sort(key=lambda x: x["similarity"], reverse=True)
@@ -109,7 +136,8 @@ class OrchestrationRegistry:
         
     def update_score(self, script_id: int, new_score: float):
         """Update the score and usage metrics of an existing script."""
-        with sqlite3.connect(self.db_path) as conn:
+        conn = sqlite3.connect(self.db_path)
+        try:
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE scripts 
@@ -117,3 +145,5 @@ class OrchestrationRegistry:
                 WHERE id = ?
             ''', (new_score, script_id))
             conn.commit()
+        finally:
+            conn.close()

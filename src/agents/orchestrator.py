@@ -268,6 +268,39 @@ class CodeExecutionAgent(AsyncBaseAgent):
         self.orchestration_registry = OrchestrationRegistry()
         self.scorer = ScriptScorer()
 
+    def _summarize_trace(self, trace: List[Dict[str, Any]]) -> Dict[str, Any]:
+        agent_spans = [item for item in trace if item.get("type") == "agent"]
+        atom_counts = [
+            int((item.get("outputs") or {}).get("atom_count", 0))
+            for item in agent_spans
+        ]
+        response_formats = sorted({
+            str((item.get("outputs") or {}).get("response_format", "plain_text"))
+            for item in agent_spans
+        })
+        return {
+            "agent_span_count": len(agent_spans),
+            "atom_count_total": sum(atom_counts),
+            "max_atom_count": max(atom_counts) if atom_counts else 0,
+            "response_formats": response_formats,
+        }
+
+    def _build_registry_metadata(
+        self,
+        *,
+        plan: Any,
+        trace: Optional[List[Dict[str, Any]]] = None,
+        selected_experts: Optional[List[str]] = None,
+        error: str = "",
+    ) -> Dict[str, Any]:
+        return {
+            "selected_experts": list(selected_experts or []),
+            "execution_plan": plan.to_dict(),
+            "trace_summary": self._summarize_trace(trace or []),
+            "outcome": "error" if error else "success",
+            "error": error,
+        }
+
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
         """Execute the generated script in the sandbox asynchronously"""
         code = state.get('generated_code', '')
@@ -298,7 +331,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
             self.orchestration_registry.store_script(
                 task_description=query,
                 script_content=code,
-                score=score
+                score=score,
+                metadata=self._build_registry_metadata(
+                    plan=plan,
+                    trace=execution_result.get("trace", []),
+                    selected_experts=execution_result["selected_experts"],
+                ),
             )
 
             await get_tracer().emit(TraceEvent(
@@ -339,7 +377,12 @@ class CodeExecutionAgent(AsyncBaseAgent):
             self.orchestration_registry.store_script(
                 task_description=query,
                 script_content=code,
-                score=0.0
+                score=0.0,
+                metadata=self._build_registry_metadata(
+                    plan=plan,
+                    selected_experts=[],
+                    error=str(e),
+                ),
             )
 
             return {

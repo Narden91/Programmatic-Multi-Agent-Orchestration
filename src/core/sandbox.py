@@ -224,7 +224,15 @@ class CodeSandbox:
                 result = await real_query_agent(agent_type, prompt, context_ids)
                 self._call_log[agent_type] = result.text
                 
-                self.tracer.end_span(span, outputs={"text": result.text}, metrics={"tokens": result.token_count})
+                self.tracer.end_span(
+                    span,
+                    outputs={
+                        "text": result.text,
+                        "atom_count": len(getattr(result, "atoms", [])),
+                        "response_format": result.metadata.get("response_format", "plain_text"),
+                    },
+                    metrics={"tokens": result.token_count},
+                )
                 return result
             except Exception as e:
                 self.tracer.end_span(span, error=e)
