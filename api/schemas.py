@@ -3,11 +3,13 @@
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 
+from src.core.config import DEFAULT_LLM_MODEL
+
 
 class QueryRequest(BaseModel):
     query: str
     api_key: Optional[str] = None
-    model: str = "llama-3.3-70b-versatile"
+    model: str = DEFAULT_LLM_MODEL
 
 
 class QueryResponse(BaseModel):

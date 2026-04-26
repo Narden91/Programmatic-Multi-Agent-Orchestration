@@ -13,7 +13,7 @@ const initialState = {
   messages: [],
   config: {
     apiKey: '',
-    model: 'llama-3.3-70b-versatile',
+    model: 'llama-3.1-8b-instant',
     hasEnvKey: false,
   },
   isLoading: false,
@@ -88,7 +88,13 @@ export default function App() {
     // Single init call (config + models in one request)
     getInit()
       .then((data) => {
-        dispatch({ type: 'SET_CONFIG', payload: { hasEnvKey: data.has_env_api_key } })
+        dispatch({
+          type: 'SET_CONFIG',
+          payload: {
+            hasEnvKey: data.has_env_api_key,
+            model: data.default_model || initialState.config.model,
+          },
+        })
         dispatch({ type: 'SET_MODELS', payload: data.models })
       })
       .catch((err) => {

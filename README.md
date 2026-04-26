@@ -322,8 +322,8 @@ context = mem.format_context()  # inject into prompts for follow-up awareness
 
 | Model | Notes |
 |-------|-------|
-| `llama-3.3-70b-versatile` | Default for orchestrator & experts |
-| `llama-3.1-70b-versatile` | High context, stable |
+| `llama-3.1-8b-instant` | Default for orchestrator & experts; best quota-aware starting point |
+| `llama-3.3-70b-versatile` | Higher quality, but more likely to hit Groq quota limits |
 | `llama3-8b-8192` | Extremely fast |
 | `mixtral-8x7b-32768` | Balanced performance |
 | `gemma2-9b-it` | Efficient, high quality |
@@ -420,7 +420,7 @@ python -m benchmarks.run --model llama-3.1-8b-instant --filter single_technical 
 | `GROQ_API_KEY` | — | Groq API key (required unless another provider is configured) |
 | `OPENAI_API_KEY` | — | OpenAI API key (optional) |
 | `ANTHROPIC_API_KEY` | — | Anthropic API key (optional) |
-| `ORCHESTRATOR_MODEL` | `llama-3.3-70b-versatile` | Model for the orchestrator agent |
+| `ORCHESTRATOR_MODEL` | `llama-3.1-8b-instant` | Model for the orchestrator agent |
 | `MAX_TOKENS` | `2000` | Maximum tokens per LLM call |
 | `MAX_PARALLEL_EXPERTS` | `4` | Max concurrent expert calls |
 | `REQUEST_TIMEOUT` | `120` | Sandbox execution timeout (seconds) |

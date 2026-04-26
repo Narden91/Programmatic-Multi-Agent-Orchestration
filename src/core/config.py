@@ -7,6 +7,20 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=True)
 
+DEFAULT_LLM_MODEL = "llama-3.1-8b-instant"
+DEPRECATED_MODEL_REPLACEMENTS: Dict[str, str] = {
+    "llama-3.1-70b-versatile": DEFAULT_LLM_MODEL,
+}
+GROQ_CHAT_MODELS = [
+    DEFAULT_LLM_MODEL,
+    "llama-3.3-70b-versatile",
+    "llama3-8b-8192",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+]
+OPENAI_CHAT_MODELS = ["gpt-4o", "gpt-4o-mini"]
+ANTHROPIC_CHAT_MODELS = ["claude-3-5-sonnet-20240620", "claude-3-5-haiku-20241022"]
+
 
 # ---------------------------------------------------------------------------
 # Secret wrapper — prevents API keys from leaking in repr / logs / tracebacks
@@ -56,7 +70,7 @@ class LLMConfig:
     @classmethod
     def from_env(cls, prefix: str):
         """Create LLMConfig from environment variables"""
-        default_model = "llama-3.3-70b-versatile"
+        default_model = DEFAULT_LLM_MODEL
         return cls(
             model_name=os.getenv(f"{prefix}_MODEL", default_model),
             temperature=float(os.getenv(f"{prefix}_TEMPERATURE", "0.5")),

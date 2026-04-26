@@ -14,23 +14,66 @@ from api.schemas import (
     QueryResponse,
     HealthResponse,
 )
-from src.core.config import MoEConfig, SecretStr
+from src.core.config import (
+    ANTHROPIC_CHAT_MODELS,
+    DEFAULT_LLM_MODEL,
+    DEPRECATED_MODEL_REPLACEMENTS,
+    GROQ_CHAT_MODELS,
+    MoEConfig,
+    OPENAI_CHAT_MODELS,
+    SecretStr,
+)
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
 
 router = APIRouter()
 
 AVAILABLE_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama3-8b-8192",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
-    "gpt-4o",
-    "gpt-4o-mini",
-    "claude-3-5-sonnet-20240620",
-    "claude-3-5-haiku-20241022",
+    *GROQ_CHAT_MODELS,
+    *OPENAI_CHAT_MODELS,
+    *ANTHROPIC_CHAT_MODELS,
 ]
+
+
+def _validate_requested_model(model_name: str) -> None:
+    replacement = DEPRECATED_MODEL_REPLACEMENTS.get(model_name)
+    if replacement:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The model `{model_name}` has been decommissioned by the provider. "
+                f"Use `{replacement}` instead."
+            ),
+        )
+
+
+def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
+    text = str(error).strip()
+    lowered = text.lower()
+
+    if "rate_limit_exceeded" in lowered or "provider rate limit exceeded" in lowered or "rate limit" in lowered:
+        return HTTPException(
+            status_code=429,
+            detail=(
+                f"Provider rate limit exceeded for `{model_name}`. "
+                f"Retry after the provider cooldown or switch to a smaller supported model like `{DEFAULT_LLM_MODEL}`."
+            ),
+        )
+
+    if "model_decommissioned" in lowered or "decommissioned" in lowered:
+        replacement = DEPRECATED_MODEL_REPLACEMENTS.get(model_name, DEFAULT_LLM_MODEL)
+        return HTTPException(
+            status_code=400,
+            detail=(
+                f"The model `{model_name}` is no longer supported by the provider. "
+                f"Try `{replacement}` instead."
+            ),
+        )
+
+    if "invalid_request_error" in lowered:
+        return HTTPException(status_code=400, detail=text)
+
+    return HTTPException(status_code=500, detail=text or f"{type(error).__name__} (no message)")
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -41,6 +84,7 @@ async def health():
 @router.get("/init")
 async def get_init():
     """Combined config+models endpoint — one request instead of two."""
+    config = MoEConfig()
     has_env_key = bool(
         os.getenv("GROQ_API_KEY", "").strip() or 
         os.getenv("OPENAI_API_KEY", "").strip() or 
@@ -49,6 +93,7 @@ async def get_init():
     return {
         "has_env_api_key": has_env_key,
         "version": "0.5.0",
+        "default_model": config.orchestrator_config.model_name,
         "models": AVAILABLE_MODELS,
     }
 
@@ -56,6 +101,9 @@ async def get_init():
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
     api_key_str = (req.api_key or "").strip()
+    requested_model = (req.model or DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL
+
+    _validate_requested_model(requested_model)
 
     config = MoEConfig()
     
@@ -77,9 +125,9 @@ async def run_query(req: QueryRequest):
         )
 
     try:
-        config.orchestrator_config.model_name = req.model
+        config.orchestrator_config.model_name = requested_model
         for ec in config.expert_configs.values():
-            ec.llm_config.model_name = req.model
+            ec.llm_config.model_name = requested_model
         config.validate()
 
         builder = MoEGraphBuilder(config)
@@ -116,7 +164,12 @@ async def run_query(req: QueryRequest):
             status_code=504,
             detail="Request timed out. Try a shorter query or increase REQUEST_TIMEOUT.",
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Query failed: %s\n%s", e, traceback.format_exc())
-        detail = str(e) or f"{type(e).__name__} (no message)"
-        raise HTTPException(status_code=500, detail=detail)
+        http_error = _map_query_failure(e, requested_model)
+        if http_error.status_code >= 500:
+            logger.error("Query failed: %s\n%s", e, traceback.format_exc())
+        else:
+            logger.warning("Query failed: %s", http_error.detail)
+        raise http_error
