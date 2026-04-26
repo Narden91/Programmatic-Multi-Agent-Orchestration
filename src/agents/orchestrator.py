@@ -20,6 +20,14 @@ class _CandidateScript:
     details: Dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _CandidateMode:
+    name: str
+    instructions: str
+    uses_neighborhood: bool = False
+    uses_plan_motif: bool = False
+
+
 class OrchestratorAgent(BaseAgent):
     """Orchestrator agent that generates an async Python orchestration script"""
     
@@ -32,6 +40,7 @@ class OrchestratorAgent(BaseAgent):
         atom_few_shot_count: int = 4,
         enable_atom_few_shot_retrieval: bool = True,
         enable_metadata_selection_bias: bool = True,
+        registry_db_path: str = ".moe_registry.db",
         script_bank: Optional[Any] = None, # kept for backward compat in init args
     ):
         super().__init__("Orchestrator", llm_provider)
@@ -42,7 +51,7 @@ class OrchestratorAgent(BaseAgent):
         self.enable_atom_few_shot_retrieval = bool(enable_atom_few_shot_retrieval)
         self.enable_metadata_selection_bias = bool(enable_metadata_selection_bias)
         self.prompts = OrchestratorPrompts()
-        self.orchestration_registry = OrchestrationRegistry()
+        self.orchestration_registry = OrchestrationRegistry(db_path=registry_db_path)
 
     @staticmethod
     def _build_script_examples(similar_rows: List[Dict[str, Any]]) -> List[tuple[str, str]]:
@@ -82,6 +91,150 @@ class OrchestratorAgent(BaseAgent):
                 "evidence_tags": row.get("evidence_tags") or payload.get("evidence_tags") or [],
             })
         return examples
+
+    @staticmethod
+    def _build_neighborhood_examples(neighborhoods: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        examples: List[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for neighborhood in neighborhoods:
+            seed = neighborhood.get("seed") or {}
+            payload = seed.get("payload") or {}
+            seed_atom_id = str(seed.get("atom_id") or payload.get("atom_id") or "").strip()
+            if not seed_atom_id or seed_atom_id in seen:
+                continue
+            seen.add(seed_atom_id)
+
+            seed_text = str(payload.get("text") or payload.get("compressed_text") or "").strip()
+            if not seed_text:
+                continue
+
+            neighbors = []
+            for neighbor in neighborhood.get("neighbors") or []:
+                neighbor_payload = neighbor.get("payload") or {}
+                neighbor_atom_id = str(neighbor.get("atom_id") or neighbor_payload.get("atom_id") or "").strip()
+                neighbor_text = str(neighbor_payload.get("text") or neighbor_payload.get("compressed_text") or "").strip()
+                if not neighbor_text:
+                    continue
+                neighbors.append({
+                    "atom_id": neighbor_atom_id,
+                    "text": neighbor_text,
+                })
+
+            edges = []
+            for edge in neighborhood.get("edges") or []:
+                source_atom_id = str(edge.get("source_atom_id") or "").strip()
+                target_atom_id = str(edge.get("target_atom_id") or "").strip()
+                if not source_atom_id or not target_atom_id:
+                    continue
+                edges.append({
+                    "source_atom_id": source_atom_id,
+                    "target_atom_id": target_atom_id,
+                    "edge_type": str(edge.get("edge_type") or "dependency"),
+                })
+
+            examples.append({
+                "task_description": seed.get("task_description", ""),
+                "agent_type": seed.get("agent_type", "general"),
+                "seed_atom_id": seed_atom_id,
+                "seed_text": seed_text,
+                "similarity": float(seed.get("similarity", 0.0) or 0.0),
+                "neighbors": neighbors,
+                "edges": edges,
+            })
+
+        return examples
+
+    @staticmethod
+    def _build_plan_motif_examples(plan_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        examples: List[Dict[str, Any]] = []
+        seen: set[tuple[Any, Any]] = set()
+
+        for row in plan_rows:
+            key = (row.get("script_id"), row.get("motif_index"))
+            if key in seen:
+                continue
+            seen.add(key)
+
+            examples.append({
+                "task_description": row.get("task_description", ""),
+                "motif_text": row.get("motif_text", ""),
+                "expert_type": row.get("expert_type", "unknown"),
+                "is_parallel": bool(row.get("is_parallel", False)),
+                "group_id": row.get("group_id"),
+                "similarity": float(row.get("similarity", 0.0) or 0.0),
+            })
+
+        return examples
+
+    @staticmethod
+    def _build_candidate_modes(
+        neighborhood_few_shot: List[Dict[str, Any]],
+        plan_few_shot: List[Dict[str, Any]],
+    ) -> List[_CandidateMode]:
+        modes: List[_CandidateMode] = []
+
+        if neighborhood_few_shot:
+            graph_hint = neighborhood_few_shot[0]
+            edge_text = "; ".join(
+                f"{edge.get('source_atom_id', '')} -> {edge.get('target_atom_id', '')}"
+                for edge in graph_hint.get("edges") or []
+            ) or "preserve prerequisite order"
+            modes.append(_CandidateMode(
+                name="dependency_preserving_graph",
+                instructions=(
+                    "Bias this candidate toward preserving retrieved atom dependency order. "
+                    f"Follow graph edges such as: {edge_text}."
+                ),
+                uses_neighborhood=True,
+            ))
+
+        if plan_few_shot:
+            plan_hint = plan_few_shot[0]
+            modes.append(_CandidateMode(
+                name="plan_motif_reuse",
+                instructions=(
+                    "Bias this candidate toward reusing the retrieved plan motif when appropriate. "
+                    f"Motif: {plan_hint.get('motif_text', '')}."
+                ),
+                uses_plan_motif=True,
+            ))
+
+        if neighborhood_few_shot and plan_few_shot:
+            modes.append(_CandidateMode(
+                name="graph_parallel_reuse",
+                instructions=(
+                    "Bias this candidate toward combining retrieved dependency neighborhoods with reusable scheduling motifs. "
+                    "Preserve dependencies while favoring parallel group reuse when the task structure matches."
+                ),
+                uses_neighborhood=True,
+                uses_plan_motif=True,
+            ))
+
+        modes.extend([
+            _CandidateMode(
+                name="balanced_default",
+                instructions="Generate a balanced orchestration candidate that optimizes for coverage, correctness, and moderate parallelism.",
+            ),
+            _CandidateMode(
+                name="coverage_first",
+                instructions="Generate a candidate that emphasizes expert coverage and robustness over minimalism.",
+            ),
+            _CandidateMode(
+                name="low_memory",
+                instructions="Generate a compact candidate that minimizes unnecessary expert calls and redundant synthesis.",
+            ),
+        ])
+        return modes
+
+    @staticmethod
+    def _apply_candidate_mode(prompt: str, mode: _CandidateMode) -> str:
+        return (
+            f"{prompt}\n\n"
+            f"Candidate Generation Mode: {mode.name}\n"
+            f"Mode-Specific Bias: {mode.instructions}\n"
+            "Ensure this candidate meaningfully reflects the mode above rather than repeating a generic orchestration pattern."
+        )
     
     async def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
@@ -91,16 +244,32 @@ class OrchestratorAgent(BaseAgent):
         conversation_context = state.get('conversation_context', '')
         similar_rows: List[Dict[str, Any]] = []
         atom_rows: List[Dict[str, Any]] = []
+        neighborhood_rows: List[Dict[str, Any]] = []
+        plan_rows: List[Dict[str, Any]] = []
 
         # Gather few-shot examples from registry
         few_shot: List[tuple] = []
         atom_few_shot: List[Dict[str, Any]] = []
+        neighborhood_few_shot: List[Dict[str, Any]] = []
+        plan_few_shot: List[Dict[str, Any]] = []
+        candidate_modes: List[_CandidateMode] = []
         if not code_failure:
             similar_rows = self.orchestration_registry.search(query, top_k=self.script_few_shot_count)
             few_shot = self._build_script_examples(similar_rows)
             if self.enable_atom_few_shot_retrieval and self.atom_few_shot_count > 0:
                 atom_rows = self.orchestration_registry.search_atoms(query, top_k=self.atom_few_shot_count)
                 atom_few_shot = self._build_atom_examples(atom_rows)
+                neighborhood_rows = self.orchestration_registry.search_atom_neighborhoods(
+                    query,
+                    top_k=max(1, min(self.atom_few_shot_count, 2)),
+                )
+                neighborhood_few_shot = self._build_neighborhood_examples(neighborhood_rows)
+                plan_rows = self.orchestration_registry.search_plan_motifs(
+                    query,
+                    top_k=max(1, min(self.atom_few_shot_count, 3)),
+                )
+                plan_few_shot = self._build_plan_motif_examples(plan_rows)
+            candidate_modes = self._build_candidate_modes(neighborhood_few_shot, plan_few_shot)
 
         # Determine prompt based on whether it is a retry
         if code_failure and previous_code:
@@ -118,6 +287,8 @@ class OrchestratorAgent(BaseAgent):
                 expert_descriptions=descriptions,
                 few_shot_examples=few_shot or None,
                 atom_few_shot_examples=atom_few_shot or None,
+                atom_graph_examples=neighborhood_few_shot or None,
+                plan_graph_examples=plan_few_shot or None,
                 conversation_context=conversation_context,
             )
 
@@ -130,6 +301,8 @@ class OrchestratorAgent(BaseAgent):
                 "is_retry": bool(code_failure),
                 "few_shot": len(few_shot),
                 "atom_few_shot": len(atom_few_shot),
+                "graph_few_shot": len(neighborhood_few_shot),
+                "plan_few_shot": len(plan_few_shot),
             },
         ))
 
@@ -138,6 +311,7 @@ class OrchestratorAgent(BaseAgent):
             generated_code, selection_details = await self._generate_with_search(
                 prompt=prompt,
                 similar_rows=similar_rows,
+                candidate_modes=candidate_modes,
             )
             await get_tracer().emit(TraceEvent(
                 kind=TraceKind.CUSTOM.value,
@@ -150,13 +324,50 @@ class OrchestratorAgent(BaseAgent):
                 },
             ))
         else:
-            response = await self.ainvoke_with_retry(prompt)
+            mode = candidate_modes[0] if candidate_modes else _CandidateMode(
+                name="single_default",
+                instructions="Generate a single balanced orchestration candidate.",
+            )
+            response = await self.ainvoke_with_retry(self._apply_candidate_mode(prompt, mode))
             generated_code = self._extract_code(response.content)
             selection_details = {
                 "selection_mode": "single",
                 "candidate_count": 1,
                 "selected_score": 0.0,
+                "selected_mode": mode.name,
+                "candidate_modes": [mode.name],
+                "graph_biased_modes": int(mode.uses_neighborhood or mode.uses_plan_motif),
+                "neighborhood_biased_modes": int(mode.uses_neighborhood),
+                "plan_biased_modes": int(mode.uses_plan_motif),
             }
+
+        neighborhood_reuse_rate = 0.0
+        if neighborhood_few_shot:
+            neighborhood_reuse_rate = min(
+                selection_details.get("neighborhood_biased_modes", 0),
+                len(neighborhood_few_shot),
+            ) / len(neighborhood_few_shot)
+
+        plan_reuse_rate = 0.0
+        if plan_few_shot:
+            plan_reuse_rate = min(
+                selection_details.get("plan_biased_modes", 0),
+                len(plan_few_shot),
+            ) / len(plan_few_shot)
+
+        retrieval_metrics = {
+            "script_few_shot_count": len(few_shot),
+            "atom_few_shot_count": len(atom_few_shot),
+            "graph_few_shot_count": len(neighborhood_few_shot),
+            "plan_few_shot_count": len(plan_few_shot),
+            "candidate_modes": selection_details.get("candidate_modes", []),
+            "selected_candidate_mode": selection_details.get("selected_mode", "single_default"),
+            "graph_biased_modes": selection_details.get("graph_biased_modes", 0),
+            "neighborhood_biased_modes": selection_details.get("neighborhood_biased_modes", 0),
+            "plan_biased_modes": selection_details.get("plan_biased_modes", 0),
+            "neighborhood_reuse_rate": round(neighborhood_reuse_rate, 3),
+            "plan_reuse_rate": round(plan_reuse_rate, 3),
+        }
 
         await get_tracer().emit(TraceEvent(
             kind=TraceKind.ORCHESTRATOR_CODE_GENERATED.value, agent=self.name,
@@ -166,6 +377,10 @@ class OrchestratorAgent(BaseAgent):
         return {
             "generated_code": generated_code,
             "code_execution_error": "",
+            "metadata": {
+                **state.get("metadata", {}),
+                "retrieval": retrieval_metrics,
+            },
             "reasoning_steps": [self._log_step(
                 action="Generated orchestration code",
                 details={
@@ -174,6 +389,9 @@ class OrchestratorAgent(BaseAgent):
                     "is_retry": bool(code_failure),
                     "few_shot_count": len(few_shot),
                     "atom_few_shot_count": len(atom_few_shot),
+                    "graph_few_shot_count": len(neighborhood_few_shot),
+                    "plan_few_shot_count": len(plan_few_shot),
+                    "retrieval": retrieval_metrics,
                     "selection": selection_details,
                 }
             )]
@@ -183,37 +401,125 @@ class OrchestratorAgent(BaseAgent):
         self,
         prompt: str,
         similar_rows: List[Dict[str, Any]],
+        candidate_modes: List[_CandidateMode],
     ) -> tuple[str, Dict[str, Any]]:
         """Generate multiple candidate scripts and select the best one heuristically."""
-        raw_candidates: List[str] = []
-        for _ in range(self.candidate_count):
-            response = await self.ainvoke_with_retry(prompt)
-            raw_candidates.append(self._extract_code(response.content))
+        modes = candidate_modes or [_CandidateMode(
+            name="balanced_default",
+            instructions="Generate a balanced orchestration candidate.",
+        )]
+        raw_candidates: List[tuple[str, _CandidateMode]] = []
+        for index in range(self.candidate_count):
+            mode = modes[index % len(modes)]
+            response = await self.ainvoke_with_retry(self._apply_candidate_mode(prompt, mode))
+            raw_candidates.append((self._extract_code(response.content), mode))
 
-        unique_candidates = list(dict.fromkeys(c for c in raw_candidates if c.strip()))
+        unique_candidates: Dict[str, _CandidateMode] = {}
+        for code, mode in raw_candidates:
+            if code.strip() and code not in unique_candidates:
+                unique_candidates[code] = mode
         if not unique_candidates:
             return "", {
                 "selection_mode": "heuristic",
                 "candidate_count": 0,
                 "selected_score": 0.0,
                 "top_scores": [],
+                "candidate_modes": [],
+                "selected_mode": "",
+                "graph_biased_modes": 0,
+                "neighborhood_biased_modes": 0,
+                "plan_biased_modes": 0,
             }
 
         scored: List[_CandidateScript] = []
-        for code in unique_candidates:
+        pruned_candidate_count = 0
+        best_score = float("-inf")
+        for code, mode in unique_candidates.items():
+            candidate_upper_bound = self._candidate_upper_bound(code, mode)
+            if scored and candidate_upper_bound < best_score - 1.0:
+                pruned_candidate_count += 1
+                continue
+
             score, details = self._score_candidate(code, similar_rows)
+            details.update({
+                "candidate_mode": mode.name,
+                "candidate_mode_uses_neighborhood": mode.uses_neighborhood,
+                "candidate_mode_uses_plan_motif": mode.uses_plan_motif,
+                "candidate_upper_bound": round(candidate_upper_bound, 4),
+            })
             scored.append(_CandidateScript(code=code, score=score, details=details))
+            best_score = max(best_score, score)
+
+        if not scored:
+            return "", {
+                "selection_mode": "heuristic",
+                "candidate_count": 0,
+                "selected_score": 0.0,
+                "top_scores": [],
+                "candidate_modes": [],
+                "selected_mode": "",
+                "graph_biased_modes": 0,
+                "neighborhood_biased_modes": 0,
+                "plan_biased_modes": 0,
+                "pruned_candidate_count": pruned_candidate_count,
+            }
 
         scored.sort(key=lambda c: c.score, reverse=True)
         selected = scored[0]
+        used_modes = list(unique_candidates.values())
 
         return selected.code, {
             "selection_mode": "heuristic",
             "candidate_count": len(unique_candidates),
             "selected_score": round(selected.score, 4),
             "top_scores": [round(c.score, 4) for c in scored[:3]],
+            "candidate_modes": [mode.name for mode in used_modes],
+            "selected_mode": selected.details.get("candidate_mode", ""),
+            "graph_biased_modes": sum(1 for mode in used_modes if mode.uses_neighborhood or mode.uses_plan_motif),
+            "neighborhood_biased_modes": sum(1 for mode in used_modes if mode.uses_neighborhood),
+            "plan_biased_modes": sum(1 for mode in used_modes if mode.uses_plan_motif),
+            "pruned_candidate_count": pruned_candidate_count,
             "selected_features": selected.details,
         }
+
+    @staticmethod
+    def _candidate_upper_bound(code: str, mode: _CandidateMode) -> float:
+        upper_bound = 0.0
+
+        if "async def orchestrate" in code:
+            upper_bound += 1.0
+        else:
+            upper_bound -= 3.0
+
+        query_calls = code.count("query_agent(")
+        if query_calls == 0:
+            upper_bound -= 0.6
+        else:
+            upper_bound += min(query_calls, 4) * 0.30
+
+        if "asyncio.gather" in code:
+            upper_bound += 0.4
+
+        if len(code) > 12_000:
+            upper_bound -= (len(code) - 12_000) / 4_000
+
+        if mode.uses_neighborhood or mode.uses_plan_motif:
+            upper_bound += 0.25
+
+        return upper_bound
+
+    @staticmethod
+    def _estimate_atomization_cost(plan: Any, code_len: int) -> float:
+        call_count = len(plan.calls)
+        expert_count = len(plan.experts_used)
+
+        excess_calls = max(call_count - 3, 0) * 0.12
+        oversharding = max(call_count - max(expert_count, 1), 0) * 0.18
+        serial_coordination = 0.10 if call_count >= 3 and not plan.has_parallel else 0.0
+        expert_fanout = max(expert_count - 2, 0) * 0.05
+        code_density = max(code_len - 5_000, 0) / 5_000 * 0.05
+
+        return round(excess_calls + oversharding + serial_coordination + expert_fanout + code_density, 4)
 
     def _score_candidate(
         self,
@@ -251,6 +557,9 @@ class OrchestratorAgent(BaseAgent):
 
         score += min(expert_count, 3) * 0.20
 
+        atomization_cost = self._estimate_atomization_cost(plan, code_len)
+        score -= atomization_cost
+
         if code_len > 12_000:
             score -= (code_len - 12_000) / 4_000
 
@@ -271,6 +580,7 @@ class OrchestratorAgent(BaseAgent):
             "expert_count": expert_count,
             "parallel_groups": parallel_groups,
             "code_length": code_len,
+            "atomization_cost": atomization_cost,
             "registry_prior": round(prior_boost, 4),
             **prior_details,
         }
@@ -420,6 +730,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
         timeout_seconds: int = 60,
         isolate_process: bool = True,
         sandbox_policy: Optional[SandboxPolicy] = None,
+        registry_db_path: str = ".moe_registry.db",
         script_bank: Optional[Any] = None,
     ):
         super().__init__("CodeExecutor")
@@ -428,7 +739,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
             isolate_process=isolate_process,
             policy=sandbox_policy,
         )
-        self.orchestration_registry = OrchestrationRegistry()
+        self.orchestration_registry = OrchestrationRegistry(db_path=registry_db_path)
         self.scorer = ScriptScorer()
 
     def _summarize_trace(self, trace: List[Dict[str, Any]]) -> Dict[str, Any]:

@@ -120,3 +120,48 @@ def test_orchestrator_prompt_supports_atom_level_few_shots():
 
     assert "Relevant semantic atoms retrieved" in prompt
     assert "Binary search halves the interval." in prompt
+
+
+def test_orchestrator_prompt_supports_atom_graph_hints():
+    prompt = OrchestratorPrompts.create_orchestration_prompt(
+        query="Explain binary search",
+        available_experts=["technical"],
+        atom_graph_examples=[
+            {
+                "task_description": "Explain search algorithms",
+                "agent_type": "technical",
+                "seed_atom_id": "bs-2",
+                "seed_text": "It requires sorted data.",
+                "similarity": 0.97,
+                "neighbors": [
+                    {"atom_id": "bs-1", "text": "Binary search halves the interval."}
+                ],
+                "edges": [
+                    {"source_atom_id": "bs-2", "target_atom_id": "bs-1", "edge_type": "dependency"}
+                ],
+            }
+        ],
+    )
+
+    assert "Relevant atom graph neighborhoods" in prompt
+    assert "bs-2 -> bs-1 (dependency)" in prompt
+
+
+def test_orchestrator_prompt_supports_plan_graph_hints():
+    prompt = OrchestratorPrompts.create_orchestration_prompt(
+        query="Explain binary search",
+        available_experts=["technical"],
+        plan_graph_examples=[
+            {
+                "task_description": "Explain search algorithms",
+                "motif_text": "parallel group 1 technical via query_agent",
+                "expert_type": "technical",
+                "is_parallel": True,
+                "group_id": 1,
+                "similarity": 0.94,
+            }
+        ],
+    )
+
+    assert "Relevant compressed plan motifs" in prompt
+    assert "parallel group 1 technical via query_agent" in prompt

@@ -42,6 +42,7 @@ class MoEGraphBuilder:
             atom_few_shot_count=self.config.orchestrator_atom_few_shot_count,
             enable_atom_few_shot_retrieval=self.config.enable_atom_few_shot_retrieval,
             enable_metadata_selection_bias=self.config.enable_metadata_selection_bias,
+            registry_db_path=self.config.registry_db_path,
         )
         
         self.agents['code_executor'] = CodeExecutionAgent(
@@ -53,6 +54,7 @@ class MoEGraphBuilder:
                 max_statements=self.config.sandbox_max_statements,
                 max_query_calls=self.config.sandbox_max_query_calls,
             ),
+            registry_db_path=self.config.registry_db_path,
         )
     
     def _should_retry_code(self, state: MoEState) -> str:

@@ -12,6 +12,7 @@ async def test_run_all_supports_repeats():
         "final_answer": "ok",
         "selected_experts": ["technical"],
         "token_usage": {"total_tokens": 42},
+        "metadata": {"retrieval": {"neighborhood_reuse_rate": 0.5}},
     }
 
     suite = BenchmarkSuite()
@@ -27,6 +28,7 @@ async def test_run_all_supports_repeats():
     assert len(by_case) == 1
     assert by_case[0]["name"] == "repeat_case"
     assert by_case[0]["runs"] == 3
+    assert summary["neighborhood_reuse_rate_mean"] == 0.5
 
 
 def test_pretty_print_shows_aggregates_for_repeats():
@@ -52,6 +54,7 @@ async def test_run_variant_slice_compares_success_retries_and_tokens():
         "selected_experts": ["technical"],
         "token_usage": {"total_tokens": 120},
         "code_execution_iterations": 2,
+        "metadata": {"retrieval": {"neighborhood_reuse_rate": 0.0}},
     }
 
     metadata_bias = AsyncMock()
@@ -60,6 +63,7 @@ async def test_run_variant_slice_compares_success_retries_and_tokens():
         "selected_experts": ["technical"],
         "token_usage": {"total_tokens": 80},
         "code_execution_iterations": 1,
+        "metadata": {"retrieval": {"neighborhood_reuse_rate": 1.0}},
     }
 
     suite = BenchmarkSuite()
@@ -75,7 +79,21 @@ async def test_run_variant_slice_compares_success_retries_and_tokens():
     assert summary["variants"][1]["metrics"]["tokens_mean"] == 80.0
     assert summary["deltas"][0]["delta_retries_mean"] == -1
     assert summary["deltas"][0]["delta_tokens_mean"] == -40.0
+    assert summary["deltas"][0]["delta_neighborhood_reuse_rate_mean"] == 1.0
 
     text = comparison.pretty_print()
     assert "BENCHMARK SLICE REPORT" in text
     assert "DELTAS VS BASELINE" in text
+
+
+def test_pretty_print_shows_family_aggregates_when_present():
+    from benchmarks.suite import BenchmarkReport, BenchmarkResult
+
+    case = BenchmarkCase(name="warm_case", query="q", family="search")
+    report = BenchmarkReport(results=[
+        BenchmarkResult(case=case, success=True, elapsed_seconds=1.0, neighborhood_reuse_rate=1.0),
+    ])
+
+    text = report.pretty_print()
+
+    assert "FAMILY AGGREGATES" in text

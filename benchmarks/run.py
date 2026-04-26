@@ -11,7 +11,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 from copy import deepcopy
+from pathlib import Path
 import sys
+import tempfile
 
 from benchmarks.suite import create_standard_suite
 
@@ -35,7 +37,15 @@ def main() -> None:
         action="store_true",
         help="Compare baseline routing against atom few-shot + metadata-biased candidate selection",
     )
+    parser.add_argument(
+        "--warm-task-slice",
+        action="store_true",
+        help="Compare baseline routing against graph-aware retrieval on warm-task benchmark families",
+    )
     args = parser.parse_args()
+
+    if args.selection_bias_slice and args.warm_task_slice:
+        parser.error("Choose either --selection-bias-slice or --warm-task-slice, not both.")
 
     # Late import so benchmarks module can be imported without side-effects
     from src.core.config import MoEConfig, SecretStr
@@ -48,30 +58,40 @@ def main() -> None:
     suite = create_standard_suite()
     repeats = max(args.repeats, 1)
 
-    if args.selection_bias_slice:
-        baseline_cfg = deepcopy(cfg)
-        baseline_cfg.enable_atom_few_shot_retrieval = False
-        baseline_cfg.enable_metadata_selection_bias = False
-        baseline_cfg.orchestrator_candidate_count = max(baseline_cfg.orchestrator_candidate_count, 2)
+    if args.selection_bias_slice or args.warm_task_slice:
+        with tempfile.TemporaryDirectory(prefix="moe-bench-") as temp_dir:
+            temp_root = Path(temp_dir)
+            baseline_cfg = deepcopy(cfg)
+            baseline_cfg.registry_db_path = str(temp_root / "baseline.sqlite")
+            baseline_cfg.enable_atom_few_shot_retrieval = False
+            baseline_cfg.enable_metadata_selection_bias = False
 
-        biased_cfg = deepcopy(cfg)
-        biased_cfg.enable_atom_few_shot_retrieval = True
-        biased_cfg.enable_metadata_selection_bias = True
-        biased_cfg.orchestrator_candidate_count = max(biased_cfg.orchestrator_candidate_count, 2)
+            graph_cfg = deepcopy(cfg)
+            graph_cfg.registry_db_path = str(temp_root / "graph.sqlite")
+            graph_cfg.enable_atom_few_shot_retrieval = True
+            graph_cfg.enable_metadata_selection_bias = True
 
-        comparison = asyncio.run(
-            suite.run_variant_slice(
-                {
-                    "baseline": MoEGraphBuilder(baseline_cfg).build(),
-                    "metadata_bias": MoEGraphBuilder(biased_cfg).build(),
-                },
-                filter_pattern=args.filter,
-                repeats=repeats,
+            if args.warm_task_slice:
+                baseline_cfg.orchestrator_candidate_count = max(baseline_cfg.orchestrator_candidate_count, 3)
+                graph_cfg.orchestrator_candidate_count = max(graph_cfg.orchestrator_candidate_count, 3)
+                variant_names = {"baseline": MoEGraphBuilder(baseline_cfg).build(), "graph_retrieval": MoEGraphBuilder(graph_cfg).build()}
+                filter_pattern = args.filter or "warm"
+            else:
+                baseline_cfg.orchestrator_candidate_count = max(baseline_cfg.orchestrator_candidate_count, 2)
+                graph_cfg.orchestrator_candidate_count = max(graph_cfg.orchestrator_candidate_count, 2)
+                variant_names = {"baseline": MoEGraphBuilder(baseline_cfg).build(), "metadata_bias": MoEGraphBuilder(graph_cfg).build()}
+                filter_pattern = args.filter
+
+            comparison = asyncio.run(
+                suite.run_variant_slice(
+                    variant_names,
+                    filter_pattern=filter_pattern,
+                    repeats=repeats,
+                )
             )
-        )
-        print(comparison.pretty_print())
-        any_failures = any(variant.report.failed for variant in comparison.variants)
-        sys.exit(0 if not any_failures else 1)
+            print(comparison.pretty_print())
+            any_failures = any(variant.report.failed for variant in comparison.variants)
+            sys.exit(0 if not any_failures else 1)
 
     builder = MoEGraphBuilder(cfg)
     graph = builder.build()

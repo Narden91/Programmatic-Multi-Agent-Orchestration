@@ -37,12 +37,14 @@ class BenchmarkCase:
     query: str
     expected_experts: List[str] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
+    family: str = ""
 
     def matches_filter(self, pattern: str) -> bool:
         pattern_lower = pattern.lower()
         return (
             pattern_lower in self.name.lower()
             or pattern_lower in self.query.lower()
+            or pattern_lower in self.family.lower()
             or any(pattern_lower in t.lower() for t in self.tags)
         )
 
@@ -60,6 +62,8 @@ class BenchmarkResult:
     error: str = ""
     repeat_index: int = 1
     retry_count: int = 0
+    retrieval_metrics: Dict[str, Any] = field(default_factory=dict)
+    neighborhood_reuse_rate: float = 0.0
 
 
 @dataclass
@@ -111,6 +115,18 @@ class BenchmarkReport:
             return 0.0
         return statistics.mean(r.retry_count for r in self.results)
 
+    @property
+    def mean_elapsed_seconds(self) -> float:
+        if not self.results:
+            return 0.0
+        return statistics.mean(r.elapsed_seconds for r in self.results)
+
+    @property
+    def mean_neighborhood_reuse_rate(self) -> float:
+        if not self.results:
+            return 0.0
+        return statistics.mean(r.neighborhood_reuse_rate for r in self.results)
+
     def summary(self) -> Dict[str, Any]:
         return {
             "total_cases": len(self.results),
@@ -118,13 +134,17 @@ class BenchmarkReport:
             "failed": self.failed,
             "expert_accuracy_pct": round(self.expert_accuracy, 1),
             "success_rate_pct": round(self.success_rate_pct, 1),
+            "elapsed_mean_seconds": round(self.mean_elapsed_seconds, 3),
             "retries_mean": round(self.mean_retries, 3),
             "tokens_mean": round(self.mean_tokens, 1),
+            "neighborhood_reuse_rate_mean": round(self.mean_neighborhood_reuse_rate, 3),
             "total_elapsed_seconds": round(self.total_elapsed, 2),
             "by_case": self.case_aggregates(),
+            "by_family": self.family_aggregates(),
             "per_case": [
                 {
                     "name": r.case.name,
+                    "family": r.case.family,
                     "repeat_index": r.repeat_index,
                     "success": r.success,
                     "elapsed": round(r.elapsed_seconds, 2),
@@ -132,6 +152,7 @@ class BenchmarkReport:
                     "expected_experts": r.case.expected_experts,
                     "tokens": r.token_summary.get("total_tokens", 0),
                     "retry_count": r.retry_count,
+                    "neighborhood_reuse_rate": round(r.neighborhood_reuse_rate, 3),
                     "error": r.error[:200] if r.error else "",
                 }
                 for r in self.results
@@ -160,9 +181,33 @@ class BenchmarkReport:
                 "elapsed_stdev": round(statistics.pstdev(elapsed), 3) if len(elapsed) > 1 else 0.0,
                 "retries_mean": round(statistics.mean(r.retry_count for r in items), 3),
                 "tokens_mean": round(statistics.mean(tokens), 1) if tokens else 0.0,
+                "neighborhood_reuse_rate_mean": round(statistics.mean(r.neighborhood_reuse_rate for r in items), 3),
             })
 
         rows.sort(key=lambda r: r["name"])
+        return rows
+
+    def family_aggregates(self) -> List[Dict[str, Any]]:
+        grouped: Dict[str, List[BenchmarkResult]] = {}
+        for result in self.results:
+            if result.case.family:
+                grouped.setdefault(result.case.family, []).append(result)
+
+        rows: List[Dict[str, Any]] = []
+        for family, items in grouped.items():
+            elapsed = [r.elapsed_seconds for r in items]
+            pass_rate = sum(1 for r in items if r.success) / len(items) * 100
+            rows.append({
+                "family": family,
+                "runs": len(items),
+                "pass_rate_pct": round(pass_rate, 1),
+                "elapsed_mean": round(statistics.mean(elapsed), 3),
+                "retries_mean": round(statistics.mean(r.retry_count for r in items), 3),
+                "tokens_mean": round(statistics.mean(int(r.token_summary.get("total_tokens", 0)) for r in items), 1),
+                "neighborhood_reuse_rate_mean": round(statistics.mean(r.neighborhood_reuse_rate for r in items), 3),
+            })
+
+        rows.sort(key=lambda r: r["family"])
         return rows
 
     def pretty_print(self) -> str:
@@ -175,8 +220,10 @@ class BenchmarkReport:
             f"  Failed        : {self.failed}",
             f"  Success rate  : {self.success_rate_pct:.1f}%",
             f"  Expert acc.   : {self.expert_accuracy:.1f}%",
+            f"  Mean elapsed  : {self.mean_elapsed_seconds:.2f}s",
             f"  Mean retries  : {self.mean_retries:.2f}",
             f"  Mean tokens   : {self.mean_tokens:.1f}",
+            f"  Mean reuse    : {self.mean_neighborhood_reuse_rate:.2f}",
             f"  Total time    : {self.total_elapsed:.2f}s",
             "-" * 60,
         ]
@@ -195,7 +242,16 @@ class BenchmarkReport:
             for row in self.case_aggregates():
                 lines.append(
                     "  {name:30s} runs={runs:<2d} pass={pass_rate_pct:5.1f}% "
-                    "elapsed={elapsed_mean:.2f}s±{elapsed_stdev:.2f} retries={retries_mean:.2f} tokens={tokens_mean:.1f}".format(**row)
+                    "elapsed={elapsed_mean:.2f}s±{elapsed_stdev:.2f} retries={retries_mean:.2f} tokens={tokens_mean:.1f} reuse={neighborhood_reuse_rate_mean:.2f}".format(**row)
+                )
+
+        family_rows = self.family_aggregates()
+        if family_rows:
+            lines.append("-" * 60)
+            lines.append(" FAMILY AGGREGATES")
+            for row in family_rows:
+                lines.append(
+                    "  {family:24s} runs={runs:<2d} pass={pass_rate_pct:5.1f}% elapsed={elapsed_mean:.2f}s retries={retries_mean:.2f} tokens={tokens_mean:.1f} reuse={neighborhood_reuse_rate_mean:.2f}".format(**row)
                 )
 
         lines.append("=" * 60)
@@ -219,8 +275,10 @@ class BenchmarkComparisonReport:
         baseline = self.variants[0]
         baseline_metrics = {
             "success_rate_pct": baseline.report.success_rate_pct,
+            "elapsed_mean_seconds": baseline.report.mean_elapsed_seconds,
             "retries_mean": baseline.report.mean_retries,
             "tokens_mean": baseline.report.mean_tokens,
+            "neighborhood_reuse_rate_mean": baseline.report.mean_neighborhood_reuse_rate,
         }
 
         variants = []
@@ -228,8 +286,10 @@ class BenchmarkComparisonReport:
         for variant in self.variants:
             metrics = {
                 "success_rate_pct": round(variant.report.success_rate_pct, 1),
+                "elapsed_mean_seconds": round(variant.report.mean_elapsed_seconds, 3),
                 "retries_mean": round(variant.report.mean_retries, 3),
                 "tokens_mean": round(variant.report.mean_tokens, 1),
+                "neighborhood_reuse_rate_mean": round(variant.report.mean_neighborhood_reuse_rate, 3),
                 "failed": variant.report.failed,
             }
             variants.append({"name": variant.name, "metrics": metrics})
@@ -238,8 +298,10 @@ class BenchmarkComparisonReport:
             deltas.append({
                 "name": variant.name,
                 "delta_success_rate_pct": round(variant.report.success_rate_pct - baseline_metrics["success_rate_pct"], 1),
+                "delta_elapsed_mean_seconds": round(variant.report.mean_elapsed_seconds - baseline_metrics["elapsed_mean_seconds"], 3),
                 "delta_retries_mean": round(variant.report.mean_retries - baseline_metrics["retries_mean"], 3),
                 "delta_tokens_mean": round(variant.report.mean_tokens - baseline_metrics["tokens_mean"], 1),
+                "delta_neighborhood_reuse_rate_mean": round(variant.report.mean_neighborhood_reuse_rate - baseline_metrics["neighborhood_reuse_rate_mean"], 3),
             })
 
         return {"variants": variants, "deltas": deltas}
@@ -254,7 +316,7 @@ class BenchmarkComparisonReport:
         for item in summary["variants"]:
             metrics = item["metrics"]
             lines.append(
-                "  {name:18s} success={success_rate_pct:5.1f}% retries={retries_mean:.2f} tokens={tokens_mean:.1f} failed={failed}".format(
+                "  {name:18s} success={success_rate_pct:5.1f}% elapsed={elapsed_mean_seconds:.2f}s retries={retries_mean:.2f} tokens={tokens_mean:.1f} reuse={neighborhood_reuse_rate_mean:.2f} failed={failed}".format(
                     name=item["name"],
                     **metrics,
                 )
@@ -265,7 +327,7 @@ class BenchmarkComparisonReport:
             lines.append(" DELTAS VS BASELINE")
             for delta in summary["deltas"]:
                 lines.append(
-                    "  {name:18s} success={delta_success_rate_pct:+.1f} retries={delta_retries_mean:+.2f} tokens={delta_tokens_mean:+.1f}".format(**delta)
+                    "  {name:18s} success={delta_success_rate_pct:+.1f} elapsed={delta_elapsed_mean_seconds:+.2f}s retries={delta_retries_mean:+.2f} tokens={delta_tokens_mean:+.1f} reuse={delta_neighborhood_reuse_rate_mean:+.2f}".format(**delta)
                 )
 
         lines.append("=" * 60)
@@ -329,6 +391,7 @@ class BenchmarkSuite:
                 try:
                     result_state = await graph.ainvoke(state)
                     elapsed = time.time() - t0
+                    retrieval_metrics = ((result_state.get("metadata") or {}).get("retrieval") or {})
                     report.results.append(BenchmarkResult(
                         case=case,
                         success=True,
@@ -338,6 +401,8 @@ class BenchmarkSuite:
                         answer_snippet=(result_state.get("final_answer", "")[:200]),
                         repeat_index=repeat_index,
                         retry_count=max(int(result_state.get("code_execution_iterations", 0)) - 1, 0),
+                        retrieval_metrics=retrieval_metrics,
+                        neighborhood_reuse_rate=float(retrieval_metrics.get("neighborhood_reuse_rate", 0.0) or 0.0),
                     ))
                 except Exception as exc:
                     elapsed = time.time() - t0
@@ -418,6 +483,48 @@ STANDARD_CASES: List[BenchmarkCase] = [
         query="Tell me about Python.",
         expected_experts=["general"],
         tags=["ambiguous", "routing"],
+    ),
+    BenchmarkCase(
+        name="warm_binary_search_intro",
+        query="Explain how binary search works and why it is faster than linear scan on sorted arrays.",
+        expected_experts=["technical"],
+        tags=["warm", "graph", "retrieval"],
+        family="binary_search",
+    ),
+    BenchmarkCase(
+        name="warm_binary_search_prerequisites",
+        query="Why does binary search require sorted input, and what breaks if the data is unsorted?",
+        expected_experts=["technical", "analytical"],
+        tags=["warm", "graph", "retrieval"],
+        family="binary_search",
+    ),
+    BenchmarkCase(
+        name="warm_binary_search_tradeoffs",
+        query="Compare binary search with linear search and explain when each strategy is preferable.",
+        expected_experts=["technical", "analytical"],
+        tags=["warm", "graph", "retrieval"],
+        family="binary_search",
+    ),
+    BenchmarkCase(
+        name="warm_transformer_intro",
+        query="Explain the role of self-attention inside a transformer architecture.",
+        expected_experts=["technical"],
+        tags=["warm", "graph", "retrieval"],
+        family="transformers",
+    ),
+    BenchmarkCase(
+        name="warm_transformer_scaling",
+        query="Why does self-attention scale quadratically with sequence length, and what practical tradeoffs follow?",
+        expected_experts=["technical", "analytical"],
+        tags=["warm", "graph", "retrieval"],
+        family="transformers",
+    ),
+    BenchmarkCase(
+        name="warm_transformer_comparison",
+        query="Compare transformer self-attention with recurrent sequence models for long-context reasoning.",
+        expected_experts=["technical", "analytical"],
+        tags=["warm", "graph", "retrieval"],
+        family="transformers",
     ),
 ]
 

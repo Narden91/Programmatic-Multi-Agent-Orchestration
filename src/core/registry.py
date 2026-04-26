@@ -65,12 +65,30 @@ class OrchestrationRegistry:
                     FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS plan_motifs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    script_id INTEGER NOT NULL,
+                    motif_index INTEGER NOT NULL,
+                    expert_type TEXT,
+                    function_name TEXT,
+                    line_number INTEGER DEFAULT 0,
+                    is_parallel INTEGER DEFAULT 0,
+                    group_id INTEGER,
+                    motif_text TEXT NOT NULL,
+                    motif_embedding TEXT DEFAULT '[]',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(script_id) REFERENCES scripts(id) ON DELETE CASCADE
+                )
+            ''')
             self._ensure_column(cursor, "scripts", "metadata", "TEXT DEFAULT '{}' ")
             self._ensure_column(cursor, "script_atoms", "atom_embedding", "TEXT DEFAULT '[]'")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_atoms_script_id ON script_atoms(script_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_script_atoms_agent_type ON script_atoms(agent_type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_atom_edges_script_id ON atom_edges(script_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_atom_edges_source ON atom_edges(source_atom_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_plan_motifs_script_id ON plan_motifs(script_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_plan_motifs_expert_type ON plan_motifs(expert_type)")
             conn.commit()
         finally:
             conn.close()
@@ -166,10 +184,74 @@ class OrchestrationRegistry:
             ''', (task_description, script_content, embedding_json, metadata_json, score))
             script_id = cursor.lastrowid
             self._store_atom_payloads(cursor, script_id, atom_payloads or [])
+            self._store_plan_motifs(cursor, script_id, metadata or {})
             conn.commit()
             return script_id
         finally:
             conn.close()
+
+    def _store_plan_motifs(
+        self,
+        cursor: sqlite3.Cursor,
+        script_id: int,
+        metadata: Dict[str, Any],
+    ) -> None:
+        plan_data = metadata.get("execution_plan") if isinstance(metadata, dict) else None
+        if not isinstance(plan_data, dict):
+            return
+
+        calls = plan_data.get("calls") or []
+        if not isinstance(calls, list):
+            return
+
+        normalized_rows: List[Dict[str, Any]] = []
+        for motif_index, call in enumerate(calls):
+            if not isinstance(call, dict):
+                continue
+
+            expert_type = str(call.get("expert") or "unknown")
+            function_name = str(call.get("function") or "query_agent")
+            line_number = int(call.get("line") or 0)
+            is_parallel = bool(call.get("parallel", False))
+            group_id = call.get("group")
+            parallel_label = f"parallel group {group_id}" if is_parallel and group_id is not None else ("parallel" if is_parallel else "sequential")
+            motif_text = f"{parallel_label} {expert_type} via {function_name}"
+            normalized_rows.append({
+                "motif_index": motif_index,
+                "expert_type": expert_type,
+                "function_name": function_name,
+                "line_number": line_number,
+                "is_parallel": 1 if is_parallel else 0,
+                "group_id": group_id,
+                "motif_text": motif_text,
+            })
+
+        embeddings = self._get_embeddings([row["motif_text"] for row in normalized_rows])
+        for index, row in enumerate(normalized_rows):
+            cursor.execute('''
+                INSERT INTO plan_motifs (
+                    script_id,
+                    motif_index,
+                    expert_type,
+                    function_name,
+                    line_number,
+                    is_parallel,
+                    group_id,
+                    motif_text,
+                    motif_embedding
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                script_id,
+                row["motif_index"],
+                row["expert_type"],
+                row["function_name"],
+                row["line_number"],
+                row["is_parallel"],
+                row["group_id"],
+                row["motif_text"],
+                json.dumps(embeddings[index] if index < len(embeddings) else []),
+            ))
 
     def _store_atom_payloads(
         self,
@@ -387,6 +469,33 @@ class OrchestrationRegistry:
             for source_atom_id, target_atom_id, edge_type in rows
         ]
 
+    def get_plan_motifs(self, script_id: int) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT motif_index, expert_type, function_name, line_number, is_parallel, group_id, motif_text
+                FROM plan_motifs
+                WHERE script_id = ?
+                ORDER BY motif_index ASC
+            ''', (script_id,))
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        return [
+            {
+                "motif_index": motif_index,
+                "expert_type": expert_type,
+                "function_name": function_name,
+                "line_number": line_number,
+                "is_parallel": bool(is_parallel),
+                "group_id": group_id,
+                "motif_text": motif_text,
+            }
+            for motif_index, expert_type, function_name, line_number, is_parallel, group_id, motif_text in rows
+        ]
+
     def search_atoms(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
         if top_k <= 0:
             return []
@@ -511,6 +620,83 @@ class OrchestrationRegistry:
             })
 
         return neighborhoods
+
+    def search_plan_motifs(self, query: str, top_k: int = 4) -> List[Dict[str, Any]]:
+        if top_k <= 0:
+            return []
+
+        query_emb = self._get_embedding(query)
+        if not query_emb:
+            return []
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT
+                    pm.script_id,
+                    pm.motif_index,
+                    pm.expert_type,
+                    pm.function_name,
+                    pm.line_number,
+                    pm.is_parallel,
+                    pm.group_id,
+                    pm.motif_text,
+                    pm.motif_embedding,
+                    s.task_description,
+                    s.metadata,
+                    s.score
+                FROM plan_motifs pm
+                JOIN scripts s ON s.id = pm.script_id
+                WHERE pm.motif_embedding IS NOT NULL AND pm.motif_embedding != '[]'
+            ''')
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
+
+        embeddings: List[List[float]] = []
+        results: List[Dict[str, Any]] = []
+        for row in rows:
+            (
+                script_id,
+                motif_index,
+                expert_type,
+                function_name,
+                line_number,
+                is_parallel,
+                group_id,
+                motif_text,
+                motif_embedding,
+                task_description,
+                metadata,
+                score,
+            ) = row
+
+            embedding = json.loads(motif_embedding or "[]")
+            if not embedding:
+                continue
+
+            embeddings.append(embedding)
+            results.append({
+                "script_id": script_id,
+                "motif_index": motif_index,
+                "expert_type": expert_type,
+                "function_name": function_name,
+                "line_number": line_number,
+                "is_parallel": bool(is_parallel),
+                "group_id": group_id,
+                "motif_text": motif_text,
+                "task_description": task_description,
+                "metadata": json.loads(metadata or "{}"),
+                "score": score,
+            })
+
+        scores = self._vector_cosine_similarity(query_emb, embeddings)
+        for result, similarity in zip(results, scores):
+            result["similarity"] = similarity
+
+        results.sort(key=lambda item: item.get("similarity", 0.0), reverse=True)
+        return results[:top_k]
         
     def update_score(self, script_id: int, new_score: float):
         """Update the score and usage metrics of an existing script."""

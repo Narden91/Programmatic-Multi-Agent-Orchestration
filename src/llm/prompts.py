@@ -11,6 +11,8 @@ class OrchestratorPrompts:
         expert_descriptions: Optional[Dict[str, str]] = None,
         few_shot_examples: Optional[List[Tuple[str, str]]] = None,
         atom_few_shot_examples: Optional[List[Dict[str, Any]]] = None,
+        atom_graph_examples: Optional[List[Dict[str, Any]]] = None,
+        plan_graph_examples: Optional[List[Dict[str, Any]]] = None,
         conversation_context: str = "",
     ) -> str:
         """Create orchestration prompt for code generation.
@@ -80,6 +82,63 @@ class OrchestratorPrompts:
                 + "\n\n".join(examples)
                 + "\n\nUse these atoms as high-signal hints for decomposition, expert choice, and dependency ordering. Do not copy them blindly.\n"
             )
+
+        atom_graph_section = ""
+        if atom_graph_examples:
+            examples = []
+            for i, example in enumerate(atom_graph_examples, 1):
+                neighbors = example.get("neighbors") or []
+                if neighbors:
+                    neighbor_text = "; ".join(
+                        f"{neighbor.get('atom_id', '')}: {neighbor.get('text', '')}"
+                        for neighbor in neighbors
+                    )
+                else:
+                    neighbor_text = "none"
+
+                edges = example.get("edges") or []
+                if edges:
+                    edge_text = "; ".join(
+                        f"{edge.get('source_atom_id', '')} -> {edge.get('target_atom_id', '')} ({edge.get('edge_type', 'dependency')})"
+                        for edge in edges
+                    )
+                else:
+                    edge_text = "none"
+
+                examples.append(
+                    f"--- Atom Graph Hint {i} ---\n"
+                    f'Origin Query: "{example.get("task_description", "")}"\n'
+                    f"Expert: {example.get('agent_type', 'general')}\n"
+                    f"Seed Atom: {example.get('seed_atom_id', '')}: {example.get('seed_text', '')}\n"
+                    f"Similarity: {float(example.get('similarity', 0.0)):.2f}\n"
+                    f"Neighbor Atoms: {neighbor_text}\n"
+                    f"Dependency Edges: {edge_text}"
+                )
+            atom_graph_section = (
+                "\n\nRelevant atom graph neighborhoods from prior successful orchestrations:\n"
+                + "\n\n".join(examples)
+                + "\n\nUse these graph neighborhoods to preserve dependency order, decide which expert outputs should precede others, and recognize reusable plan motifs.\n"
+            )
+
+        plan_graph_section = ""
+        if plan_graph_examples:
+            examples = []
+            for i, example in enumerate(plan_graph_examples, 1):
+                parallel_label = "parallel" if example.get("is_parallel") else "sequential"
+                group_text = f", group {example.get('group_id')}" if example.get("group_id") is not None else ""
+                examples.append(
+                    f"--- Plan Motif {i} ---\n"
+                    f'Origin Query: "{example.get("task_description", "")}"\n'
+                    f"Motif: {example.get('motif_text', '')}\n"
+                    f"Expert: {example.get('expert_type', 'unknown')}\n"
+                    f"Execution: {parallel_label}{group_text}\n"
+                    f"Similarity: {float(example.get('similarity', 0.0)):.2f}"
+                )
+            plan_graph_section = (
+                "\n\nRelevant compressed plan motifs from prior successful orchestrations:\n"
+                + "\n\n".join(examples)
+                + "\n\nUse these motifs as reusable scheduling patterns when deciding whether to stay sequential or parallel.\n"
+            )
         
         # Optional conversation context section
         context_section = ""
@@ -113,6 +172,8 @@ Instructions:
 8. You do NOT need to import the tool functions or `asyncio`; they are already injected into the global namespace.
 {few_shot_section}
 {atom_few_shot_section}
+{atom_graph_section}
+{plan_graph_section}
 Example:
 ```python
 async def orchestrate():

@@ -109,6 +109,7 @@ class MoEConfig:
     orchestrator_atom_few_shot_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_ATOM_FEW_SHOTS", "4")))
     enable_atom_few_shot_retrieval: bool = field(default_factory=lambda: os.getenv("ENABLE_ATOM_FEW_SHOT_RETRIEVAL", "true").lower() == "true")
     enable_metadata_selection_bias: bool = field(default_factory=lambda: os.getenv("ENABLE_METADATA_SELECTION_BIAS", "true").lower() == "true")
+    registry_db_path: str = field(default_factory=lambda: os.getenv("REGISTRY_DB_PATH", ".moe_registry.db"))
 
     sandbox_isolate_process: bool = field(
         default_factory=lambda: os.getenv(
