@@ -1,17 +1,17 @@
-from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
 import re
-from .base import BaseAgent, AsyncBaseAgent
-from .registry import registry
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
+
+from ..core.registry import OrchestrationRegistry
+from ..core.sandbox import CodeSandbox, SandboxPolicy
+from ..core.scoring import ScriptScorer
 from ..core.state import MoEState
 from ..llm.prompts import OrchestratorPrompts
 from ..utils.code_analyzer import analyze_code
 from ..utils.metrics import get_token_tracker
-from ..core.registry import OrchestrationRegistry
-from ..core.scoring import ScriptScorer
-from ..utils.tracing import get_tracer, TraceEvent, TraceKind
-from ..core.sandbox import CodeSandbox, SandboxPolicy
-
+from ..utils.tracing import TraceEvent, TraceKind, get_tracer
+from .base import AsyncBaseAgent, BaseAgent
+from .registry import registry
 
 _LOW_BUDGET_MODELS = {
     "llama-3.1-8b-instant",
@@ -38,7 +38,7 @@ class _CandidateMode:
 
 class OrchestratorAgent(BaseAgent):
     """Orchestrator agent that generates an async Python orchestration script"""
-    
+
     def __init__(
         self,
         llm_provider,
@@ -119,8 +119,16 @@ class OrchestratorAgent(BaseAgent):
             neighbors = []
             for neighbor in neighborhood.get("neighbors") or []:
                 neighbor_payload = neighbor.get("payload") or {}
-                neighbor_atom_id = str(neighbor.get("atom_id") or neighbor_payload.get("atom_id") or "").strip()
-                neighbor_text = str(neighbor_payload.get("text") or neighbor_payload.get("compressed_text") or "").strip()
+                neighbor_atom_id = str(
+                    neighbor.get("atom_id")
+                    or neighbor_payload.get("atom_id")
+                    or ""
+                ).strip()
+                neighbor_text = str(
+                    neighbor_payload.get("text")
+                    or neighbor_payload.get("compressed_text")
+                    or ""
+                ).strip()
                 if not neighbor_text:
                     continue
                 neighbors.append({
@@ -211,8 +219,10 @@ class OrchestratorAgent(BaseAgent):
             modes.append(_CandidateMode(
                 name="graph_parallel_reuse",
                 instructions=(
-                    "Bias this candidate toward combining retrieved dependency neighborhoods with reusable scheduling motifs. "
-                    "Preserve dependencies while favoring parallel group reuse when the task structure matches."
+                    "Bias this candidate toward combining retrieved dependency "
+                    "neighborhoods with reusable scheduling motifs. Preserve "
+                    "dependencies while favoring parallel group reuse when the "
+                    "task structure matches."
                 ),
                 uses_neighborhood=True,
                 uses_plan_motif=True,
@@ -221,15 +231,24 @@ class OrchestratorAgent(BaseAgent):
         modes.extend([
             _CandidateMode(
                 name="balanced_default",
-                instructions="Generate a balanced orchestration candidate that optimizes for coverage, correctness, and moderate parallelism.",
+                instructions=(
+                    "Generate a balanced orchestration candidate that optimizes "
+                    "for coverage, correctness, and moderate parallelism."
+                ),
             ),
             _CandidateMode(
                 name="coverage_first",
-                instructions="Generate a candidate that emphasizes expert coverage and robustness over minimalism.",
+                instructions=(
+                    "Generate a candidate that emphasizes expert coverage and "
+                    "robustness over minimalism."
+                ),
             ),
             _CandidateMode(
                 name="low_memory",
-                instructions="Generate a compact candidate that minimizes unnecessary expert calls and redundant synthesis.",
+                instructions=(
+                    "Generate a compact candidate that minimizes unnecessary "
+                    "expert calls and redundant synthesis."
+                ),
             ),
         ])
         return modes
@@ -240,7 +259,8 @@ class OrchestratorAgent(BaseAgent):
             f"{prompt}\n\n"
             f"Candidate Generation Mode: {mode.name}\n"
             f"Mode-Specific Bias: {mode.instructions}\n"
-            "Ensure this candidate meaningfully reflects the mode above rather than repeating a generic orchestration pattern."
+            "Ensure this candidate meaningfully reflects the mode above rather "
+            "than repeating a generic orchestration pattern."
         )
 
     def _is_low_budget_model(self) -> bool:
@@ -278,7 +298,13 @@ class OrchestratorAgent(BaseAgent):
         atom_few_shot: List[Dict[str, Any]],
         neighborhood_few_shot: List[Dict[str, Any]],
         plan_few_shot: List[Dict[str, Any]],
-    ) -> tuple[str, List[Tuple[str, str]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    ) -> tuple[
+        str,
+        List[Tuple[str, str]],
+        List[Dict[str, Any]],
+        List[Dict[str, Any]],
+        List[Dict[str, Any]],
+    ]:
         prompt = self._build_orchestration_prompt(
             query=query,
             descriptions=descriptions,
@@ -316,29 +342,34 @@ class OrchestratorAgent(BaseAgent):
                 break
 
         return selected_prompt, *selected_payload
-    
+
     async def execute(self, state: MoEState) -> Dict[str, Any]:
-        query = state['query']
-        code_failure = state.get('code_execution_error')
-        previous_code = state.get('generated_code', '')
+        query = state["query"]
+        code_failure = state.get("code_execution_error")
+        previous_code = state.get("generated_code", "")
         descriptions = registry.descriptions()
-        conversation_context = state.get('conversation_context', '')
+        conversation_context = state.get("conversation_context", "")
         similar_rows: List[Dict[str, Any]] = []
         atom_rows: List[Dict[str, Any]] = []
         neighborhood_rows: List[Dict[str, Any]] = []
         plan_rows: List[Dict[str, Any]] = []
 
-        # Gather few-shot examples from registry
         few_shot: List[tuple] = []
         atom_few_shot: List[Dict[str, Any]] = []
         neighborhood_few_shot: List[Dict[str, Any]] = []
         plan_few_shot: List[Dict[str, Any]] = []
         candidate_modes: List[_CandidateMode] = []
         if not code_failure:
-            similar_rows = self.orchestration_registry.search(query, top_k=self.script_few_shot_count)
+            similar_rows = self.orchestration_registry.search(
+                query,
+                top_k=self.script_few_shot_count,
+            )
             few_shot = self._build_script_examples(similar_rows)
             if self.enable_atom_few_shot_retrieval and self.atom_few_shot_count > 0:
-                atom_rows = self.orchestration_registry.search_atoms(query, top_k=self.atom_few_shot_count)
+                atom_rows = self.orchestration_registry.search_atoms(
+                    query,
+                    top_k=self.atom_few_shot_count,
+                )
                 atom_few_shot = self._build_atom_examples(atom_rows)
                 neighborhood_rows = self.orchestration_registry.search_atom_neighborhoods(
                     query,
@@ -352,7 +383,6 @@ class OrchestratorAgent(BaseAgent):
                 plan_few_shot = self._build_plan_motif_examples(plan_rows)
             candidate_modes = self._build_candidate_modes(neighborhood_few_shot, plan_few_shot)
 
-        # Determine prompt based on whether it is a retry
         if code_failure and previous_code:
             prompt = self.prompts.create_retry_prompt(
                 query=query,
@@ -362,7 +392,13 @@ class OrchestratorAgent(BaseAgent):
                 expert_descriptions=descriptions,
             )
         else:
-            prompt, few_shot, atom_few_shot, neighborhood_few_shot, plan_few_shot = self._select_prompt_payload(
+            (
+                prompt,
+                few_shot,
+                atom_few_shot,
+                neighborhood_few_shot,
+                plan_few_shot,
+            ) = self._select_prompt_payload(
                 query=query,
                 descriptions=descriptions,
                 conversation_context=conversation_context,
@@ -372,7 +408,6 @@ class OrchestratorAgent(BaseAgent):
                 plan_few_shot=plan_few_shot,
             )
 
-        # Trace: orchestrator start / retry
         _kind = TraceKind.ORCHESTRATOR_RETRY if code_failure else TraceKind.ORCHESTRATOR_START
         await get_tracer().emit(TraceEvent(
             kind=_kind.value, agent=self.name,
@@ -570,7 +605,11 @@ class OrchestratorAgent(BaseAgent):
             "top_scores": [round(c.score, 4) for c in scored[:3]],
             "candidate_modes": [mode.name for mode in used_modes],
             "selected_mode": selected.details.get("candidate_mode", ""),
-            "graph_biased_modes": sum(1 for mode in used_modes if mode.uses_neighborhood or mode.uses_plan_motif),
+            "graph_biased_modes": sum(
+                1
+                for mode in used_modes
+                if mode.uses_neighborhood or mode.uses_plan_motif
+            ),
             "neighborhood_biased_modes": sum(1 for mode in used_modes if mode.uses_neighborhood),
             "plan_biased_modes": sum(1 for mode in used_modes if mode.uses_plan_motif),
             "pruned_candidate_count": pruned_candidate_count,
@@ -647,7 +686,14 @@ class OrchestratorAgent(BaseAgent):
         expert_fanout = max(expert_count - 2, 0) * 0.05
         code_density = max(code_len - 5_000, 0) / 5_000 * 0.05
 
-        return round(excess_calls + oversharding + serial_coordination + expert_fanout + code_density, 4)
+        return round(
+            excess_calls
+            + oversharding
+            + serial_coordination
+            + expert_fanout
+            + code_density,
+            4,
+        )
 
     def _score_candidate(
         self,
@@ -833,7 +879,10 @@ class OrchestratorAgent(BaseAgent):
         )
         dependency_fit = 0.0
         if dependency_targets > 0:
-            dependency_fit = min(len(getattr(plan, "calls", []) or []), dependency_targets + len(neighborhood_experts))
+            dependency_fit = min(
+                len(getattr(plan, "calls", []) or []),
+                dependency_targets + len(neighborhood_experts),
+            )
             dependency_fit /= max(dependency_targets + len(neighborhood_experts), 1)
             dependency_fit *= neighborhood_coverage if neighborhood_experts else 1.0
 
@@ -865,14 +914,22 @@ class OrchestratorAgent(BaseAgent):
             similarity_scores.append(float(seed.get("similarity", 0.0) or 0.0))
         for row in plan_rows:
             similarity_scores.append(float(row.get("similarity", 0.0) or 0.0))
-        graph_similarity = sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0
+        graph_similarity = (
+            sum(similarity_scores) / len(similarity_scores)
+            if similarity_scores
+            else 0.0
+        )
 
         structural_components: List[float] = []
         if neighborhood_rows:
             structural_components.extend([neighborhood_coverage, dependency_fit])
         if plan_rows:
             structural_components.extend([motif_expert_coverage, motif_parallel_alignment])
-        structural_match = sum(structural_components) / len(structural_components) if structural_components else 0.0
+        structural_match = (
+            sum(structural_components) / len(structural_components)
+            if structural_components
+            else 0.0
+        )
 
         total = structural_match * (0.10 + (0.25 * graph_similarity))
         return total, {
@@ -953,13 +1010,12 @@ class OrchestratorAgent(BaseAgent):
             "registry_atom_alignment": round(atom_alignment, 4),
             "registry_learning_alignment": round(learning_alignment, 4),
         }
-    
+
     def _extract_code(self, response: str) -> str:
         match = re.search(r'```python\n(.*?)\n```', response, re.DOTALL)
         if match:
             return match.group(1).strip()
-        
-        # Fallback if no markdown blocks
+
         return response.strip()
 
 
@@ -1175,17 +1231,22 @@ class CodeExecutionAgent(AsyncBaseAgent):
             "total_tokens": int(token_summary.get("total_tokens", 0) or 0),
             "prompt_tokens": int(token_summary.get("prompt_tokens", 0) or 0),
             "completion_tokens": int(token_summary.get("completion_tokens", 0) or 0),
-            "neighborhood_reuse_rate": max(min(_coerce_float(retrieval.get("neighborhood_reuse_rate")), 1.0), 0.0),
-            "plan_reuse_rate": max(min(_coerce_float(retrieval.get("plan_reuse_rate")), 1.0), 0.0),
+            "neighborhood_reuse_rate": max(
+                min(_coerce_float(retrieval.get("neighborhood_reuse_rate")), 1.0),
+                0.0,
+            ),
+            "plan_reuse_rate": max(
+                min(_coerce_float(retrieval.get("plan_reuse_rate")), 1.0),
+                0.0,
+            ),
         }
 
     async def aexecute(self, state: MoEState) -> Dict[str, Any]:
         """Execute the generated script in the sandbox asynchronously"""
-        code = state.get('generated_code', '')
-        query = state.get('query', '')
-        iterations = state.get('code_execution_iterations', 0)
+        code = state.get("generated_code", "")
+        query = state.get("query", "")
+        iterations = state.get("code_execution_iterations", 0)
 
-        # Analyse the generated code's execution plan (best-effort)
         plan = analyze_code(code)
 
         await get_tracer().emit(TraceEvent(
@@ -1209,16 +1270,13 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 token_summary=token_summary,
             )
 
-            # Start returning state early so scorer can use it
             temp_state = {
                 "final_answer": final_answer,
-                "trace_dna": trace
+                "trace_dna": trace,
             }
-            
-            # Score it async
+
             score = await self.scorer.score_execution(query, temp_state)
 
-            # Record success in registry 
             self.orchestration_registry.store_script(
                 task_description=query,
                 script_content=code,

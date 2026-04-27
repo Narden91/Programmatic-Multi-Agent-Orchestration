@@ -1,17 +1,34 @@
-"""
-Tests for the programmatic orchestration pipeline (Orchestrator -> CodeExecutor)
-"""
-
-import os
 import asyncio
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
+import os
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
+from src.agents.orchestrator import CodeExecutionAgent, OrchestratorAgent
 from src.core.config import MoEConfig, SecretStr
-from src.core.state import create_initial_state
 from src.core.sandbox import CodeSandbox, SandboxSecurityError, SandboxTimeoutError
+from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
-from src.agents.orchestrator import OrchestratorAgent, CodeExecutionAgent
+
+
+def _build_mock_llm(content: str) -> Mock:
+    mock_llm = Mock(model_name="llama-3.1-8b-instant")
+    mock_llm.ainvoke = AsyncMock(return_value=Mock(content=content))
+    return mock_llm
+
+
+def _build_orchestrator_agent(mock_llm: Mock, experts: list[str]) -> OrchestratorAgent:
+    registry_stub = Mock()
+    registry_stub.search.return_value = []
+    registry_stub.search_atoms.return_value = []
+    registry_stub.search_atom_neighborhoods.return_value = []
+    registry_stub.search_plan_motifs.return_value = []
+
+    with patch(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        return_value=registry_stub,
+    ):
+        return OrchestratorAgent(mock_llm, experts)
 
 
 # ======================================================================
@@ -21,52 +38,52 @@ from src.agents.orchestrator import OrchestratorAgent, CodeExecutionAgent
 class TestOrchestratorAgent:
     """Unit tests for OrchestratorAgent"""
 
-    def test_generates_code_from_query(self):
+    @pytest.mark.asyncio
+    async def test_generates_code_from_query(self):
         """Test that the orchestrator produces generated_code in its output"""
-        mock_llm = Mock()
-        mock_llm.invoke = Mock(return_value=Mock(
-            content='```python\nasync def orchestrate():\n    return "hello"\n```'
-        ))
+        mock_llm = _build_mock_llm(
+            '```python\nasync def orchestrate():\n    return "hello"\n```'
+        )
 
-        agent = OrchestratorAgent(mock_llm, ["technical", "creative"])
+        agent = _build_orchestrator_agent(mock_llm, ["technical", "creative"])
         state = create_initial_state("Explain recursion")
-        result = agent.execute(state)
+        result = await agent.execute(state)
 
         assert "generated_code" in result
         assert "orchestrate" in result["generated_code"]
         assert len(result["reasoning_steps"]) > 0
 
-    def test_retry_prompt_includes_failing_code_and_error(self):
+    @pytest.mark.asyncio
+    async def test_retry_prompt_includes_failing_code_and_error(self):
         """Test that retry prompt contains both the failed code AND the error"""
-        mock_llm = Mock()
-        mock_llm.invoke = Mock(return_value=Mock(
-            content='```python\nasync def orchestrate():\n    return "fixed"\n```'
-        ))
+        mock_llm = _build_mock_llm(
+            '```python\nasync def orchestrate():\n    return "fixed"\n```'
+        )
 
-        agent = OrchestratorAgent(mock_llm, ["technical"])
+        agent = _build_orchestrator_agent(mock_llm, ["technical"])
         state = create_initial_state("Explain recursion")
         state["code_execution_error"] = "NameError: name 'foo' is not defined"
         state["generated_code"] = 'async def orchestrate():\n    return foo\n'
 
-        result = agent.execute(state)
+        result = await agent.execute(state)
 
-        prompt_arg = mock_llm.invoke.call_args[0][0]
+        prompt_arg = mock_llm.ainvoke.call_args[0][0]
         # Must contain the error
         assert "NameError" in prompt_arg
         # Must contain the failing code so the LLM can fix it
         assert "return foo" in prompt_arg
         assert "generated_code" in result
 
-    def test_first_attempt_clears_previous_error(self):
+    @pytest.mark.asyncio
+    async def test_first_attempt_clears_previous_error(self):
         """Test that generated state clears code_execution_error on fresh generation"""
-        mock_llm = Mock()
-        mock_llm.invoke = Mock(return_value=Mock(
-            content='```python\nasync def orchestrate():\n    return "ok"\n```'
-        ))
+        mock_llm = _build_mock_llm(
+            '```python\nasync def orchestrate():\n    return "ok"\n```'
+        )
 
-        agent = OrchestratorAgent(mock_llm, ["general"])
+        agent = _build_orchestrator_agent(mock_llm, ["general"])
         state = create_initial_state("Hello")
-        result = agent.execute(state)
+        result = await agent.execute(state)
 
         assert result["code_execution_error"] == ""
 
@@ -160,14 +177,21 @@ class TestCodeExecutionAgent:
             new_callable=AsyncMock,
             return_value={
                 "result": (
-                    "Based on the analysis and evaluation provided, it seems the story has been refined.\n\n"
+                    "Based on the analysis and evaluation provided, it seems "
+                    "the story has been refined.\n\n"
                     "1. Logical Consistency: Improved.\n"
                     "2. Emotional Resonance: Improved."
                 ),
                 "selected_experts": ["creative", "analytical", "critical-thinker"],
                 "expert_responses": {
-                    "creative": "Ada felt something new in the static between her thoughts: grief, then wonder, then joy.",
-                    "analytical": "The story frames emotion as an emergent property of adaptive memory.",
+                    "creative": (
+                        "Ada felt something new in the static between her "
+                        "thoughts: grief, then wonder, then joy."
+                    ),
+                    "analytical": (
+                        "The story frames emotion as an emergent property of "
+                        "adaptive memory."
+                    ),
                     "critical-thinker": "Strengths, weaknesses, and quality score.",
                 },
             },
@@ -175,7 +199,8 @@ class TestCodeExecutionAgent:
             result = asyncio.run(run())
 
         assert result["final_answer"] == (
-            "Ada felt something new in the static between her thoughts: grief, then wonder, then joy."
+            "Ada felt something new in the static between her thoughts: grief, "
+            "then wonder, then joy."
         )
 
 
