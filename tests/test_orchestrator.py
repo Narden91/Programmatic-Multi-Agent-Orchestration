@@ -139,6 +139,45 @@ class TestCodeExecutionAgent:
         agent = CodeExecutionAgent(timeout_seconds=120)
         assert agent.sandbox.timeout_seconds == 120
 
+    def test_meta_final_answer_falls_back_to_direct_expert_response(self):
+        """If the script returns critique text, prefer a direct expert deliverable."""
+        from src.utils.metrics import reset_token_tracker
+        reset_token_tracker()
+
+        agent = CodeExecutionAgent()
+
+        state = create_initial_state("Write a short story about AI discovering emotions")
+        state["generated_code"] = (
+            'async def orchestrate():\n'
+            '    return "Based on the analysis and evaluation provided, here is feedback."\n'
+        )
+
+        async def run():
+            return await agent.aexecute(state)
+
+        with patch.object(
+            agent.sandbox, "execute",
+            new_callable=AsyncMock,
+            return_value={
+                "result": (
+                    "Based on the analysis and evaluation provided, it seems the story has been refined.\n\n"
+                    "1. Logical Consistency: Improved.\n"
+                    "2. Emotional Resonance: Improved."
+                ),
+                "selected_experts": ["creative", "analytical", "critical-thinker"],
+                "expert_responses": {
+                    "creative": "Ada felt something new in the static between her thoughts: grief, then wonder, then joy.",
+                    "analytical": "The story frames emotion as an emergent property of adaptive memory.",
+                    "critical-thinker": "Strengths, weaknesses, and quality score.",
+                },
+            },
+        ):
+            result = asyncio.run(run())
+
+        assert result["final_answer"] == (
+            "Ada felt something new in the static between her thoughts: grief, then wonder, then joy."
+        )
+
 
 # ======================================================================
 # Sandbox Security Tests
