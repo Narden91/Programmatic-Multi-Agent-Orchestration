@@ -334,9 +334,14 @@ class TestSandboxTimeout:
 
 
 # ======================================================================
-# Integration (requires API key)
+# Integration (opt-in live provider check)
 # ======================================================================
 
+@pytest.mark.live_groq
+@pytest.mark.skipif(
+    not os.getenv("RUN_LIVE_GROQ_TESTS"),
+    reason="Set RUN_LIVE_GROQ_TESTS=1 to run live Groq integration tests.",
+)
 @pytest.mark.skipif(
     not os.getenv("GROQ_API_KEY"),
     reason="GROQ_API_KEY not set",
