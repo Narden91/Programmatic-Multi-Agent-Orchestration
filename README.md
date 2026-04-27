@@ -10,7 +10,7 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-optional-lightgrey)](https://openai.com)
 [![Anthropic](https://img.shields.io/badge/Anthropic-optional-lightgrey)](https://anthropic.com)
 [![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-144%20collected-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-pytest%20suite-brightgreen)]()
 [![Version](https://img.shields.io/badge/version-0.5.0-blue)]()
 
 *Stop writing static DAGs. Let the AI write its own multi-agent execution graphs on the fly.*
@@ -57,17 +57,17 @@ When a query arrives, the **Master Orchestrator** retrieves prior successful scr
 graph TD
     A[User Query + Conversation Context] --> B(Orchestrator Agent)
     K[(Registry: scripts + atoms + motifs + learning)] --> B
-    B -->|Generates async Python candidate(s)| C{Hardened Code Sandbox}
+    B -->|Generates async Python candidates| C{Hardened Code Sandbox}
 
-    C -->|await query_agent("technical", ...)| D[Technical Agent]
-    C -->|await query_agent("analytical", ...)| E[Analytical Agent]
-    C -->|await query_agent("creative", ...)| F[Creative Agent]
-    C -->|await query_agent("general", ...)| G[General Agent]
+    C -->|Calls technical expert| D[Technical Agent]
+    C -->|Calls analytical expert| E[Analytical Agent]
+    C -->|Calls creative expert| F[Creative Agent]
+    C -->|Calls general expert| G[General Agent]
 
-    D -.->|AgentResult.text / .atoms| C
-    E -.->|AgentResult.text / .atoms| C
-    F -.->|AgentResult.text / .atoms| C
-    G -.->|AgentResult.text / .atoms| C
+    D -.->|Returns text and atoms| C
+    E -.->|Returns text and atoms| C
+    F -.->|Returns text and atoms| C
+    G -.->|Returns text and atoms| C
 
     C --> H[CodeExecutionAgent]
     H --> I[LangGraph State]
@@ -134,7 +134,7 @@ src/
     ├── metrics.py         # Token tracking & cost estimation
     ├── script_bank.py     # Legacy script bank retained for compatibility
     └── tracing.py         # Pipeline event tracing
-tests/                     # 144 collected tests across unit, integration, and benchmark slices
+tests/                     # Unit, integration, and benchmark coverage
 ```
 
 ---
@@ -381,7 +381,7 @@ The system implements defence-in-depth across multiple layers:
 ## 🧪 Testing
 
 ```bash
-# Run the full test suite (currently 144 collected tests)
+# Run the full test suite
 python -m pytest tests/ -v
 
 # With coverage report
@@ -390,9 +390,14 @@ python -m pytest tests/ --cov=src --cov-report=html
 # Run only unit tests
 python -m pytest tests/test_agents.py tests/test_graph.py tests/test_orchestrator.py -v
 
-# Run integration tests (requires GROQ_API_KEY)
+# Run provider-backed integration tests (requires GROQ_API_KEY)
 python -m pytest tests/test_integration.py tests/test_groq.py -v
+
+# Run the live orchestrator integration path explicitly
+RUN_LIVE_GROQ_TESTS=1 python -m pytest tests/test_orchestrator.py -m live_groq -v
 ```
+
+`tests/test_orchestrator.py` is deterministic by default: the live Groq end-to-end case is gated behind the `live_groq` marker and `RUN_LIVE_GROQ_TESTS=1` so normal cleanup and regression runs do not consume provider quota.
 
 ### Benchmarks
 
