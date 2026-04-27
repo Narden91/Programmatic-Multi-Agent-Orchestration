@@ -1,7 +1,8 @@
-from dataclasses import dataclass, field
-from typing import Dict
 import os
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Dict
+
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +51,7 @@ def get_fallback_model(model_name: str, error: Exception | None = None) -> str |
 # Secret wrapper — prevents API keys from leaking in repr / logs / tracebacks
 # ---------------------------------------------------------------------------
 
+
 class SecretStr:
     """Opaque string wrapper that masks its value in repr/str.
 
@@ -83,14 +85,40 @@ class SecretStr:
         return hash(self._value)
 
 
+def _env_str(name: str, default: str) -> str:
+    return os.getenv(name, default)
+
+
+def _env_int(name: str, default: int) -> int:
+    return int(os.getenv(name, str(default)))
+
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).lower() == "true"
+
+
+def _env_secret(name: str) -> SecretStr:
+    return SecretStr(os.getenv(name, ""))
+
+
+def _default_enable_logging() -> bool:
+    return _env_bool("ENABLE_LOGGING", _env_str("ENABLE_METRICS", "true"))
+
+
+def _default_sandbox_isolation() -> bool:
+    default = "false" if os.name == "nt" else "true"
+    return _env_bool("SANDBOX_ISOLATE_PROCESS", default)
+
+
 @dataclass
 class LLMConfig:
     """Configuration for individual LLM"""
+
     model_name: str
     temperature: float = 0.5
     max_tokens: int = 2000
     top_p: float = 1.0
-    
+
     @classmethod
     def from_env(cls, prefix: str):
         """Create LLMConfig from environment variables"""
@@ -98,13 +126,14 @@ class LLMConfig:
         return cls(
             model_name=os.getenv(f"{prefix}_MODEL", default_model),
             temperature=float(os.getenv(f"{prefix}_TEMPERATURE", "0.5")),
-            max_tokens=int(os.getenv("MAX_TOKENS", "2000"))
+            max_tokens=int(os.getenv("MAX_TOKENS", "2000")),
         )
 
 
 @dataclass
 class ExpertConfig:
     """Configuration for an expert agent"""
+
     name: str
     description: str
     llm_config: LLMConfig
@@ -116,12 +145,18 @@ class ExpertConfig:
 @dataclass
 class MoEConfig:
     """Main configuration for the MoE system"""
-    
-    groq_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("GROQ_API_KEY", "")))
-    openai_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("OPENAI_API_KEY", "")))
-    anthropic_api_key: SecretStr = field(default_factory=lambda: SecretStr(os.getenv("ANTHROPIC_API_KEY", "")))
-    
-    orchestrator_config: LLMConfig = field(default_factory=lambda: LLMConfig.from_env("ORCHESTRATOR"))
+
+    groq_api_key: SecretStr = field(default_factory=lambda: _env_secret("GROQ_API_KEY"))
+    openai_api_key: SecretStr = field(
+        default_factory=lambda: _env_secret("OPENAI_API_KEY")
+    )
+    anthropic_api_key: SecretStr = field(
+        default_factory=lambda: _env_secret("ANTHROPIC_API_KEY")
+    )
+
+    orchestrator_config: LLMConfig = field(
+        default_factory=lambda: LLMConfig.from_env("ORCHESTRATOR")
+    )
     expert_configs: Dict[str, ExpertConfig] = field(default_factory=dict)
 
     # Kept as aliases for backward-compat; both resolve to orchestrator_config.
@@ -132,45 +167,66 @@ class MoEConfig:
     @property
     def synthesizer_config(self) -> LLMConfig:
         return self.orchestrator_config
-    
-    max_parallel_experts: int = field(default_factory=lambda: int(os.getenv("MAX_PARALLEL_EXPERTS", "4")))
-    enable_logging: bool = field(default_factory=lambda: os.getenv("ENABLE_LOGGING", os.getenv("ENABLE_METRICS", "true")).lower() == "true")
-    log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "INFO"))
-    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
-    debug: bool = field(default_factory=lambda: os.getenv("DEBUG", "false").lower() == "true")
-    
-    request_timeout: int = field(default_factory=lambda: int(os.getenv("REQUEST_TIMEOUT", "120")))
-    max_retries: int = field(default_factory=lambda: int(os.getenv("MAX_RETRIES", "3")))
-    retry_delay: int = field(default_factory=lambda: int(os.getenv("RETRY_DELAY", "1")))
-    orchestrator_candidate_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_CANDIDATES", "1")))
-    orchestrator_script_few_shot_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_SCRIPT_FEW_SHOTS", "2")))
-    orchestrator_atom_few_shot_count: int = field(default_factory=lambda: int(os.getenv("ORCHESTRATOR_ATOM_FEW_SHOTS", "4")))
-    enable_atom_few_shot_retrieval: bool = field(default_factory=lambda: os.getenv("ENABLE_ATOM_FEW_SHOT_RETRIEVAL", "true").lower() == "true")
-    enable_metadata_selection_bias: bool = field(default_factory=lambda: os.getenv("ENABLE_METADATA_SELECTION_BIAS", "true").lower() == "true")
-    registry_db_path: str = field(default_factory=lambda: os.getenv("REGISTRY_DB_PATH", ".moe_registry.db"))
 
-    sandbox_isolate_process: bool = field(
-        default_factory=lambda: os.getenv(
-            "SANDBOX_ISOLATE_PROCESS",
-            # Windows spawn-based multiprocessing is too slow for interactive use;
-            # default to in-process execution unless explicitly overridden.
-            "false" if os.name == "nt" else "true",
-        ).lower() == "true"
+    max_parallel_experts: int = field(
+        default_factory=lambda: _env_int("MAX_PARALLEL_EXPERTS", 4)
     )
-    sandbox_max_code_chars: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_CODE_CHARS", "30000")))
-    sandbox_max_ast_nodes: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_AST_NODES", "8000")))
-    sandbox_max_statements: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_STATEMENTS", "1500")))
-    sandbox_max_query_calls: int = field(default_factory=lambda: int(os.getenv("SANDBOX_MAX_QUERY_CALLS", "120")))
-    
-    enable_cache: bool = field(default_factory=lambda: os.getenv("ENABLE_CACHE", "true").lower() == "true")
-    cache_ttl: int = field(default_factory=lambda: int(os.getenv("CACHE_TTL_SECONDS", "3600")))  # 1 hour default
-    cache_max_size: int = field(default_factory=lambda: int(os.getenv("CACHE_MAX_SIZE", "100")))
-    
+    enable_logging: bool = field(default_factory=_default_enable_logging)
+    log_level: str = field(default_factory=lambda: _env_str("LOG_LEVEL", "INFO"))
+    environment: str = field(
+        default_factory=lambda: _env_str("ENVIRONMENT", "development")
+    )
+    debug: bool = field(default_factory=lambda: _env_bool("DEBUG"))
+
+    request_timeout: int = field(
+        default_factory=lambda: _env_int("REQUEST_TIMEOUT", 120)
+    )
+    max_retries: int = field(default_factory=lambda: _env_int("MAX_RETRIES", 3))
+    retry_delay: int = field(default_factory=lambda: _env_int("RETRY_DELAY", 1))
+    orchestrator_candidate_count: int = field(
+        default_factory=lambda: _env_int("ORCHESTRATOR_CANDIDATES", 1)
+    )
+    orchestrator_script_few_shot_count: int = field(
+        default_factory=lambda: _env_int("ORCHESTRATOR_SCRIPT_FEW_SHOTS", 2)
+    )
+    orchestrator_atom_few_shot_count: int = field(
+        default_factory=lambda: _env_int("ORCHESTRATOR_ATOM_FEW_SHOTS", 4)
+    )
+    enable_atom_few_shot_retrieval: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_ATOM_FEW_SHOT_RETRIEVAL", "true")
+    )
+    enable_metadata_selection_bias: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_METADATA_SELECTION_BIAS", "true")
+    )
+    registry_db_path: str = field(
+        default_factory=lambda: _env_str("REGISTRY_DB_PATH", ".moe_registry.db")
+    )
+
+    sandbox_isolate_process: bool = field(default_factory=_default_sandbox_isolation)
+    sandbox_max_code_chars: int = field(
+        default_factory=lambda: _env_int("SANDBOX_MAX_CODE_CHARS", 30000)
+    )
+    sandbox_max_ast_nodes: int = field(
+        default_factory=lambda: _env_int("SANDBOX_MAX_AST_NODES", 8000)
+    )
+    sandbox_max_statements: int = field(
+        default_factory=lambda: _env_int("SANDBOX_MAX_STATEMENTS", 1500)
+    )
+    sandbox_max_query_calls: int = field(
+        default_factory=lambda: _env_int("SANDBOX_MAX_QUERY_CALLS", 120)
+    )
+
+    enable_cache: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_CACHE", "true")
+    )
+    cache_ttl: int = field(default_factory=lambda: _env_int("CACHE_TTL_SECONDS", 3600))
+    cache_max_size: int = field(default_factory=lambda: _env_int("CACHE_MAX_SIZE", 100))
+
     def __post_init__(self):
         """Initialize default expert configurations"""
         if not self.expert_configs:
             self.expert_configs = self._create_default_expert_configs()
-    
+
     def _create_default_expert_configs(self) -> Dict[str, ExpertConfig]:
         """Create default configurations for all experts"""
         return {
@@ -178,46 +234,66 @@ class MoEConfig:
                 name="technical",
                 description="Expert in programming, technology, and sciences",
                 llm_config=LLMConfig.from_env("TECHNICAL"),
-                system_prompt="You are a technical expert specialized in programming, technology, and sciences.",
-                confidence_threshold=0.85
+                system_prompt=(
+                    "You are a technical expert specialized in programming, "
+                    "technology, and sciences."
+                ),
+                confidence_threshold=0.85,
             ),
             "creative": ExpertConfig(
                 name="creative",
                 description="Expert in storytelling and creative content",
                 llm_config=LLMConfig.from_env("CREATIVE"),
-                system_prompt="You are a creative expert specialized in storytelling, brainstorming, and original content.",
-                confidence_threshold=0.80
+                system_prompt=(
+                    "You are a creative expert specialized in storytelling, "
+                    "brainstorming, and original content."
+                ),
+                confidence_threshold=0.80,
             ),
             "analytical": ExpertConfig(
                 name="analytical",
                 description="Expert in data analysis and logical reasoning",
                 llm_config=LLMConfig.from_env("ANALYTICAL"),
-                system_prompt="You are an analytical expert specialized in data analysis, logic, and rational decisions.",
-                confidence_threshold=0.88
+                system_prompt=(
+                    "You are an analytical expert specialized in data analysis, "
+                    "logic, and rational decisions."
+                ),
+                confidence_threshold=0.88,
             ),
             "general": ExpertConfig(
                 name="general",
                 description="Expert in general knowledge and conversation",
                 llm_config=LLMConfig.from_env("GENERAL"),
-                system_prompt="You are a general knowledge expert, friendly and conversational.",
-                confidence_threshold=0.75
+                system_prompt=(
+                    "You are a general knowledge expert, friendly and "
+                    "conversational."
+                ),
+                confidence_threshold=0.75,
             ),
             "critical-thinker": ExpertConfig(
                 name="critical-thinker",
-                description="Expert in scientific QA, logical fallacy checking, and evidence evaluation",
+                description=(
+                    "Expert in scientific QA, logical fallacy checking, and "
+                    "evidence evaluation"
+                ),
                 llm_config=LLMConfig.from_env("CRITICAL_THINKER"),
-                system_prompt="You are a Critical-Thinker expert. Your job is to rigorously evaluate statements, arguments, and evidence for logical fallacies, biases, and structural soundness.",
-                confidence_threshold=0.90
-            )
+                system_prompt=(
+                    "You are a Critical-Thinker expert. Your job is to "
+                    "rigorously evaluate statements, arguments, and evidence "
+                    "for logical fallacies, biases, and structural soundness."
+                ),
+                confidence_threshold=0.90,
+            ),
         }
-    
+
     def validate(self) -> bool:
         """Validate configuration"""
         if not (self.groq_api_key or self.openai_api_key or self.anthropic_api_key):
             raise ValueError(
-                "At least one API key (GROQ_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY) is required."
+                "At least one API key (GROQ_API_KEY, OPENAI_API_KEY, "
+                "or ANTHROPIC_API_KEY) is required."
             )
-        
+
         if not self.expert_configs:
             raise ValueError("At least one expert configuration is required")
 
@@ -232,14 +308,16 @@ class MoEConfig:
         if self.orchestrator_candidate_count <= 0:
             raise ValueError("ORCHESTRATOR_CANDIDATES must be > 0")
         if self.orchestrator_candidate_count > 8:
-            raise ValueError("ORCHESTRATOR_CANDIDATES must be <= 8 to avoid runaway generation cost")
+            raise ValueError(
+                "ORCHESTRATOR_CANDIDATES must be <= 8 to avoid runaway generation cost"
+            )
         if self.orchestrator_script_few_shot_count < 0:
             raise ValueError("ORCHESTRATOR_SCRIPT_FEW_SHOTS must be >= 0")
         if self.orchestrator_atom_few_shot_count < 0:
             raise ValueError("ORCHESTRATOR_ATOM_FEW_SHOTS must be >= 0")
-        
+
         return True
-    
+
     def get_provider_type(self) -> str:
         """Determine which LLM provider to use based on available keys"""
         if self.groq_api_key:
@@ -255,6 +333,12 @@ class MoEConfig:
         """Safely retrieve the raw API key string for a given provider type."""
         secret: SecretStr = getattr(self, f"{provider_type}_api_key")
         return secret.get_secret_value()
+
+
+def apply_model_override(config: MoEConfig, model_name: str) -> None:
+    config.orchestrator_config.model_name = model_name
+    for expert_config in config.expert_configs.values():
+        expert_config.llm_config.model_name = model_name
 
 
 config = MoEConfig()

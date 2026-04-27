@@ -10,18 +10,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from copy import deepcopy
-from pathlib import Path
 import sys
 import tempfile
+from copy import deepcopy
+from pathlib import Path
 
 from benchmarks.suite import create_standard_suite
-
-
-def _apply_model_override(cfg, model_name: str) -> None:
-    cfg.orchestrator_config.model_name = model_name
-    for expert_config in cfg.expert_configs.values():
-        expert_config.llm_config.model_name = model_name
 
 
 def _emit_benchmark_outputs(
@@ -79,7 +73,10 @@ def main() -> None:
     parser.add_argument(
         "--warm-task-slice",
         action="store_true",
-        help="Compare baseline routing against graph-aware retrieval on warm-task benchmark families",
+        help=(
+            "Compare baseline routing against graph-aware retrieval on warm-task "
+            "benchmark families"
+        ),
     )
     args = parser.parse_args()
 
@@ -87,14 +84,15 @@ def main() -> None:
         parser.error("Choose either --selection-bias-slice or --warm-task-slice, not both.")
 
     # Late import so benchmarks module can be imported without side-effects
-    from src.core.config import MoEConfig, SecretStr, config as runtime_config
-    from src.graph.builder import MoEGraphBuilder
     from benchmarks.plotting import build_comparison_payload, build_report_payload
+    from src.core.config import MoEConfig, apply_model_override
+    from src.core.config import config as runtime_config
+    from src.graph.builder import MoEGraphBuilder
 
     cfg = MoEConfig()
     if args.model:
-        _apply_model_override(cfg, args.model)
-        _apply_model_override(runtime_config, args.model)
+        apply_model_override(cfg, args.model)
+        apply_model_override(runtime_config, args.model)
 
     suite = create_standard_suite()
     repeats = max(args.repeats, 1)
@@ -113,14 +111,32 @@ def main() -> None:
             graph_cfg.enable_metadata_selection_bias = True
 
             if args.warm_task_slice:
-                baseline_cfg.orchestrator_candidate_count = max(baseline_cfg.orchestrator_candidate_count, 3)
-                graph_cfg.orchestrator_candidate_count = max(graph_cfg.orchestrator_candidate_count, 3)
-                variant_names = {"baseline": MoEGraphBuilder(baseline_cfg).build(), "graph_retrieval": MoEGraphBuilder(graph_cfg).build()}
+                baseline_cfg.orchestrator_candidate_count = max(
+                    baseline_cfg.orchestrator_candidate_count,
+                    3,
+                )
+                graph_cfg.orchestrator_candidate_count = max(
+                    graph_cfg.orchestrator_candidate_count,
+                    3,
+                )
+                variant_names = {
+                    "baseline": MoEGraphBuilder(baseline_cfg).build(),
+                    "graph_retrieval": MoEGraphBuilder(graph_cfg).build(),
+                }
                 filter_pattern = args.filter or "warm"
             else:
-                baseline_cfg.orchestrator_candidate_count = max(baseline_cfg.orchestrator_candidate_count, 2)
-                graph_cfg.orchestrator_candidate_count = max(graph_cfg.orchestrator_candidate_count, 2)
-                variant_names = {"baseline": MoEGraphBuilder(baseline_cfg).build(), "metadata_bias": MoEGraphBuilder(graph_cfg).build()}
+                baseline_cfg.orchestrator_candidate_count = max(
+                    baseline_cfg.orchestrator_candidate_count,
+                    2,
+                )
+                graph_cfg.orchestrator_candidate_count = max(
+                    graph_cfg.orchestrator_candidate_count,
+                    2,
+                )
+                variant_names = {
+                    "baseline": MoEGraphBuilder(baseline_cfg).build(),
+                    "metadata_bias": MoEGraphBuilder(graph_cfg).build(),
+                }
                 filter_pattern = args.filter
 
             comparison = asyncio.run(

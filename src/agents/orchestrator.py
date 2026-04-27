@@ -49,7 +49,6 @@ class OrchestratorAgent(BaseAgent):
         enable_atom_few_shot_retrieval: bool = True,
         enable_metadata_selection_bias: bool = True,
         registry_db_path: str = ".moe_registry.db",
-        script_bank: Optional[Any] = None, # kept for backward compat in init args
     ):
         super().__init__("Orchestrator", llm_provider)
         self.available_experts = available_experts or list(registry.types)
@@ -977,7 +976,6 @@ class CodeExecutionAgent(AsyncBaseAgent):
         isolate_process: bool = True,
         sandbox_policy: Optional[SandboxPolicy] = None,
         registry_db_path: str = ".moe_registry.db",
-        script_bank: Optional[Any] = None,
     ):
         super().__init__("CodeExecutor")
         self.sandbox = CodeSandbox(

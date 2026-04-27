@@ -1,11 +1,10 @@
-from unittest.mock import AsyncMock
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
 
-from benchmarks.run import _apply_model_override
 from benchmarks.suite import BenchmarkCase, BenchmarkSuite
-from src.core.config import MoEConfig, SecretStr
+from src.core.config import MoEConfig, SecretStr, apply_model_override
 
 
 @pytest.mark.asyncio
@@ -120,7 +119,7 @@ async def test_run_all_records_cancelled_runs_as_failures():
 def test_apply_model_override_updates_all_expert_models():
     cfg = MoEConfig(groq_api_key=SecretStr("fake-key"))
 
-    _apply_model_override(cfg, "llama-3.1-8b-instant")
+    apply_model_override(cfg, "llama-3.1-8b-instant")
 
     assert cfg.orchestrator_config.model_name == "llama-3.1-8b-instant"
     assert all(

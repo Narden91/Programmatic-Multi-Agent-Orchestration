@@ -1,10 +1,11 @@
 """CLI entry-point for the Programmatic Multi-Agent Orchestration system."""
 
-import asyncio
 import argparse
+import asyncio
 import os
 import sys
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -18,27 +19,25 @@ async def run_query(
     memory=None,
 ) -> None:
     """Run a single query through the programmatic orchestration pipeline."""
-    from src.core.config import MoEConfig, SecretStr
+    from src.core.config import MoEConfig, SecretStr, apply_model_override
     from src.core.state import create_initial_state
     from src.graph.builder import MoEGraphBuilder
     from src.utils.metrics import reset_token_tracker
 
     config = MoEConfig(groq_api_key=SecretStr(os.getenv("GROQ_API_KEY", "")))
     if model:
-        config.orchestrator_config.model_name = model
-        for ec in config.expert_configs.values():
-            ec.llm_config.model_name = model
+        apply_model_override(config, model)
     config.validate()
 
-    graph = MoEGraphBuilder(config, memory=memory).build()
+    graph = MoEGraphBuilder(config).build()
     state = create_initial_state(query)
 
     # Inject conversation context if memory is provided
     if memory:
         state["conversation_context"] = memory.format_context()
 
-    # Reset token tracker for this request
-    tracker = reset_token_tracker()
+    # Reset token tracker for this request.
+    reset_token_tracker()
 
     result = await graph.ainvoke(state)
 
@@ -64,7 +63,7 @@ async def run_query(
     # Token usage summary
     usage = result.get("token_usage", {})
     if usage.get("total_tokens"):
-        print(f"\n--- Token Usage ---")
+        print("\n--- Token Usage ---")
         print(f"  Input:  {usage['total_input_tokens']:>7,}")
         print(f"  Output: {usage['total_output_tokens']:>7,}")
         print(f"  Total:  {usage['total_tokens']:>7,}")
@@ -78,7 +77,7 @@ async def run_query(
             mode.append(f"{plan['gather_groups']} parallel group(s)")
         if plan.get("has_sequential"):
             mode.append("sequential")
-        print(f"\n--- Execution Plan ---")
+        print("\n--- Execution Plan ---")
         print(f"  Mode:    {' + '.join(mode)}")
         print(f"  Experts: {', '.join(plan['experts_used'])}")
 

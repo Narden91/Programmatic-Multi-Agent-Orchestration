@@ -1,40 +1,36 @@
-from langgraph.graph import StateGraph, END
-from ..core.state import MoEState
-from ..agents.orchestrator import OrchestratorAgent, CodeExecutionAgent
+from langgraph.graph import END, StateGraph
+
+from ..agents.orchestrator import CodeExecutionAgent, OrchestratorAgent
 from ..agents.registry import registry
-from ..llm.providers import LLMFactory
 from ..core.config import MoEConfig
 from ..core.sandbox import SandboxPolicy
-from ..utils.memory import ConversationMemory
+from ..core.state import MoEState
+from ..llm.providers import LLMFactory
 
 
 class MoEGraphBuilder:
     """Builder for constructing the MoE LangGraph workflow"""
-    
+
     def __init__(
         self,
         config: MoEConfig,
-        memory: ConversationMemory | None = None,
     ):
         """Initialize graph builder"""
         self.config = config
         self.agents = {}
-        self.memory = memory
         self._initialize_agents()
-    
+
     def _initialize_agents(self):
-        """Initialize all agent instances"""
         provider_type = self.config.get_provider_type()
         api_key = self.config.get_api_key(provider_type)
-        
-        # Reuse orchestrator config for the script-generating LLM
+
         orchestrator_llm = LLMFactory.create_provider(
             provider_type,
             api_key,
-            self.config.orchestrator_config
+            self.config.orchestrator_config,
         )
-        
-        self.agents['orchestrator'] = OrchestratorAgent(
+
+        self.agents["orchestrator"] = OrchestratorAgent(
             orchestrator_llm,
             available_experts=list(registry.types),
             candidate_count=self.config.orchestrator_candidate_count,
@@ -44,8 +40,8 @@ class MoEGraphBuilder:
             enable_metadata_selection_bias=self.config.enable_metadata_selection_bias,
             registry_db_path=self.config.registry_db_path,
         )
-        
-        self.agents['code_executor'] = CodeExecutionAgent(
+
+        self.agents["code_executor"] = CodeExecutionAgent(
             timeout_seconds=self.config.request_timeout,
             isolate_process=self.config.sandbox_isolate_process,
             sandbox_policy=SandboxPolicy(
@@ -56,39 +52,31 @@ class MoEGraphBuilder:
             ),
             registry_db_path=self.config.registry_db_path,
         )
-    
+
     def _should_retry_code(self, state: MoEState) -> str:
-        """Determine whether to retry if execution failed"""
-        error = state.get('code_execution_error')
-        iterations = state.get('code_execution_iterations', 0)
-        
+        error = state.get("code_execution_error")
+        iterations = state.get("code_execution_iterations", 0)
+
         max_retries = self.config.max_retries
         if error and iterations < max_retries:
             return "orchestrator"
         return END
-    
+
     def build(self):
-        """Build and compile the linear programmatic workflow"""
         workflow = StateGraph(MoEState)
-        
-        # Add nodes
-        workflow.add_node("orchestrator", self.agents['orchestrator'].execute)
-        workflow.add_node("code_executor", self.agents['code_executor'].aexecute)
-        
-        # Set entry point
+
+        workflow.add_node("orchestrator", self.agents["orchestrator"].execute)
+        workflow.add_node("code_executor", self.agents["code_executor"].aexecute)
         workflow.set_entry_point("orchestrator")
-        
-        # Linear sequence
         workflow.add_edge("orchestrator", "code_executor")
-        
-        # Add conditional routing for retry mechanism
+
         workflow.add_conditional_edges(
             "code_executor",
             self._should_retry_code,
             {
                 "orchestrator": "orchestrator",
-                END: END
-            }
+                END: END,
+            },
         )
-        
+
         return workflow.compile()

@@ -1,30 +1,31 @@
 """API routes for the MoE orchestration system."""
 
-import os
 import asyncio
 import logging
+import os
 import traceback
 
 from fastapi import APIRouter, HTTPException
 
-logger = logging.getLogger("moe.routes")
-
 from api.schemas import (
+    HealthResponse,
     QueryRequest,
     QueryResponse,
-    HealthResponse,
 )
 from src.core.config import (
     ANTHROPIC_CHAT_MODELS,
     DEFAULT_LLM_MODEL,
     DEPRECATED_MODEL_REPLACEMENTS,
     GROQ_CHAT_MODELS,
-    MoEConfig,
     OPENAI_CHAT_MODELS,
+    MoEConfig,
     SecretStr,
+    apply_model_override,
 )
 from src.core.state import create_initial_state
 from src.graph.builder import MoEGraphBuilder
+
+logger = logging.getLogger("moe.routes")
 
 router = APIRouter()
 
@@ -35,8 +36,27 @@ AVAILABLE_MODELS = [
 ]
 
 
-def _validate_requested_model(model_name: str) -> None:
-    return None
+def _has_env_api_key() -> bool:
+    return bool(
+        os.getenv("GROQ_API_KEY", "").strip()
+        or os.getenv("OPENAI_API_KEY", "").strip()
+        or os.getenv("ANTHROPIC_API_KEY", "").strip()
+    )
+
+
+def _apply_request_api_key(config: MoEConfig, api_key: str) -> None:
+    if not api_key:
+        return
+
+    if api_key.startswith("sk-ant"):
+        config.anthropic_api_key = SecretStr(api_key)
+        return
+
+    if api_key.startswith("sk-"):
+        config.openai_api_key = SecretStr(api_key)
+        return
+
+    config.groq_api_key = SecretStr(api_key)
 
 
 def _resolve_requested_model(model_name: str) -> str:
@@ -65,12 +85,17 @@ def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
             ),
         )
 
-    if "rate_limit_exceeded" in lowered or "provider rate limit exceeded" in lowered or "rate limit" in lowered:
+    if (
+        "rate_limit_exceeded" in lowered
+        or "provider rate limit exceeded" in lowered
+        or "rate limit" in lowered
+    ):
         return HTTPException(
             status_code=429,
             detail=(
                 f"Provider rate limit exceeded for `{model_name}`. "
-                f"Retry after the provider cooldown or switch to a smaller supported model like `{DEFAULT_LLM_MODEL}`."
+                "Retry after the provider cooldown or switch to a smaller "
+                f"supported model like `{DEFAULT_LLM_MODEL}`."
             ),
         )
 
@@ -99,13 +124,8 @@ async def health():
 async def get_init():
     """Combined config+models endpoint — one request instead of two."""
     config = MoEConfig()
-    has_env_key = bool(
-        os.getenv("GROQ_API_KEY", "").strip() or 
-        os.getenv("OPENAI_API_KEY", "").strip() or 
-        os.getenv("ANTHROPIC_API_KEY", "").strip()
-    )
     return {
-        "has_env_api_key": has_env_key,
+        "has_env_api_key": _has_env_api_key(),
         "version": "0.5.0",
         "default_model": config.orchestrator_config.model_name,
         "models": AVAILABLE_MODELS,
@@ -115,20 +135,12 @@ async def get_init():
 @router.post("/query", response_model=QueryResponse)
 async def run_query(req: QueryRequest):
     api_key_str = (req.api_key or "").strip()
-    requested_model = _resolve_requested_model((req.model or DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL)
-
-    _validate_requested_model(requested_model)
+    requested_model = _resolve_requested_model(
+        (req.model or DEFAULT_LLM_MODEL).strip() or DEFAULT_LLM_MODEL
+    )
 
     config = MoEConfig()
-    
-    # If the user provides a key in the request, try to guess the provider
-    if api_key_str:
-        if api_key_str.startswith("sk-ant"):
-            config.anthropic_api_key = SecretStr(api_key_str)
-        elif api_key_str.startswith("sk-"):
-            config.openai_api_key = SecretStr(api_key_str)
-        else:
-            config.groq_api_key = SecretStr(api_key_str)
+    _apply_request_api_key(config, api_key_str)
 
     try:
         config.validate()
@@ -139,9 +151,7 @@ async def run_query(req: QueryRequest):
         )
 
     try:
-        config.orchestrator_config.model_name = requested_model
-        for ec in config.expert_configs.values():
-            ec.llm_config.model_name = requested_model
+        apply_model_override(config, requested_model)
         config.validate()
 
         builder = MoEGraphBuilder(config)
@@ -158,7 +168,10 @@ async def run_query(req: QueryRequest):
         iters = result.get("code_execution_iterations", 0)
 
         if not final_answer and error:
-            final_answer = f"**Orchestration Failed after {iters} attempts**\n\n```text\n{error}\n```"
+            final_answer = (
+                f"**Orchestration Failed after {iters} attempts**\n\n"
+                f"```text\n{error}\n```"
+            )
 
         return QueryResponse(
             final_answer=final_answer,
