@@ -71,7 +71,9 @@ export default function Sidebar({
                 Programmatic MoE
               </h1>
               <p className="text-[10px] text-text-muted font-mono">
-                Code-as-Orchestration · v0.5.0
+                {config.version
+                  ? `Code-as-Orchestration · v${config.version}`
+                  : 'Code-as-Orchestration'}
               </p>
             </div>
           </div>

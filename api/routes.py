@@ -12,6 +12,7 @@ from api.schemas import (
     QueryRequest,
     QueryResponse,
 )
+from src import __version__
 from src.core.config import (
     ANTHROPIC_CHAT_MODELS,
     DEFAULT_LLM_MODEL,
@@ -117,7 +118,7 @@ def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
-    return HealthResponse(status="ok", version="0.5.0")
+    return HealthResponse(status="ok", version=__version__)
 
 
 @router.get("/init")
@@ -126,7 +127,7 @@ async def get_init():
     config = MoEConfig()
     return {
         "has_env_api_key": _has_env_api_key(),
-        "version": "0.5.0",
+        "version": __version__,
         "default_model": config.orchestrator_config.model_name,
         "models": AVAILABLE_MODELS,
     }

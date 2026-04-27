@@ -1,6 +1,6 @@
 [project]
 name = "programmatic-moe"
-version = "0.5.0"
+version = "1.1.0"
 description = "Programmatic Multi-Agent Orchestration — Code-Driven MoE with LangGraph"
 readme = "README.md"
 requires-python = ">=3.11"

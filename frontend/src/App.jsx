@@ -15,6 +15,7 @@ const initialState = {
     apiKey: '',
     model: 'llama-3.1-8b-instant',
     hasEnvKey: false,
+    version: '',
   },
   isLoading: false,
   error: null,
@@ -93,6 +94,7 @@ export default function App() {
           payload: {
             hasEnvKey: data.has_env_api_key,
             model: data.default_model || initialState.config.model,
+            version: data.version || '',
           },
         })
         dispatch({ type: 'SET_MODELS', payload: data.models })

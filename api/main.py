@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
+from src import __version__
 from src.utils.embeddings import get_embedding_model
 
 logger = logging.getLogger("moe.api")
@@ -48,7 +49,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Programmatic MoE Orchestration",
     description="Code-Driven Multi-Agent Orchestration API",
-    version="0.5.0",
+    version=__version__,
     lifespan=lifespan,
 )
 

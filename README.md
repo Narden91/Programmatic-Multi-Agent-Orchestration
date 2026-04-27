@@ -11,7 +11,7 @@
 [![Anthropic](https://img.shields.io/badge/Anthropic-optional-lightgrey)](https://anthropic.com)
 [![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev)
 [![Tests](https://img.shields.io/badge/tests-pytest%20suite-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.5.0-blue)]()
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)]()
 
 *Stop writing static DAGs. Let the AI write its own multi-agent execution graphs on the fly.*
 
@@ -477,7 +477,7 @@ curl http://127.0.0.1:8000/api/init
 Expected JSON contains:
 
 ```json
-{"has_env_api_key": true, "version": "0.5.0", "models": [...]}
+{"has_env_api_key": true, "version": "1.1.0", "models": [...]} 
 ```
 
 ---
