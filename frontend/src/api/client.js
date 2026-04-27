@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.DEV
+  ? 'http://127.0.0.1:8000/api'
+  : '/api';
 
 export async function sendQuery(query, apiKey, model) {
   const body = { query, model };

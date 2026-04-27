@@ -55,6 +55,16 @@ def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
     text = str(error).strip()
     lowered = text.lower()
 
+    if "request too large" in lowered or "error code: 413" in lowered:
+        return HTTPException(
+            status_code=413,
+            detail=(
+                f"Request too large for `{model_name}`. "
+                "The generated prompt exceeded the provider request budget for a single call. "
+                "Retry with a shorter query or reduced retrieved context."
+            ),
+        )
+
     if "rate_limit_exceeded" in lowered or "provider rate limit exceeded" in lowered or "rate limit" in lowered:
         return HTTPException(
             status_code=429,

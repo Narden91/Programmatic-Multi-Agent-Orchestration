@@ -24,6 +24,27 @@ def _apply_model_override(cfg, model_name: str) -> None:
         expert_config.llm_config.model_name = model_name
 
 
+def _emit_benchmark_outputs(
+    payload: dict,
+    *,
+    output_json: str | None,
+    plot_output: str | None,
+    plot_title: str,
+) -> None:
+    if not output_json and not plot_output:
+        return
+
+    from benchmarks.plotting import render_benchmark_plot, write_benchmark_payload
+
+    if output_json:
+        json_path = write_benchmark_payload(payload, output_json)
+        print(f"Wrote benchmark JSON to {json_path}")
+
+    if plot_output:
+        plot_path = render_benchmark_plot(payload, plot_output, title=plot_title or None)
+        print(f"Wrote benchmark plot to {plot_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run MoE benchmark suite")
     parser.add_argument(
@@ -37,6 +58,18 @@ def main() -> None:
     parser.add_argument(
         "--repeats", type=int, default=1,
         help="How many times to run each benchmark case",
+    )
+    parser.add_argument(
+        "--output-json", type=str, default="",
+        help="Optional path to write a machine-readable benchmark JSON summary",
+    )
+    parser.add_argument(
+        "--plot-output", type=str, default="",
+        help="Optional path to render a benchmark PNG/PDF/SVG comparison plot",
+    )
+    parser.add_argument(
+        "--plot-title", type=str, default="",
+        help="Optional custom title for the generated benchmark plot",
     )
     parser.add_argument(
         "--selection-bias-slice",
@@ -56,6 +89,7 @@ def main() -> None:
     # Late import so benchmarks module can be imported without side-effects
     from src.core.config import MoEConfig, SecretStr, config as runtime_config
     from src.graph.builder import MoEGraphBuilder
+    from benchmarks.plotting import build_comparison_payload, build_report_payload
 
     cfg = MoEConfig()
     if args.model:
@@ -97,6 +131,19 @@ def main() -> None:
                 )
             )
             print(comparison.pretty_print())
+            payload = build_comparison_payload(
+                comparison,
+                slice_name="warm_task" if args.warm_task_slice else "selection_bias",
+                filter_pattern=filter_pattern,
+                model_name=cfg.orchestrator_config.model_name,
+                repeats=repeats,
+            )
+            _emit_benchmark_outputs(
+                payload,
+                output_json=args.output_json or None,
+                plot_output=args.plot_output or None,
+                plot_title=args.plot_title,
+            )
             any_failures = any(variant.report.failed for variant in comparison.variants)
             sys.exit(0 if not any_failures else 1)
 
@@ -111,6 +158,18 @@ def main() -> None:
     )
 
     print(report.pretty_print())
+    payload = build_report_payload(
+        report,
+        filter_pattern=args.filter,
+        model_name=cfg.orchestrator_config.model_name,
+        repeats=repeats,
+    )
+    _emit_benchmark_outputs(
+        payload,
+        output_json=args.output_json or None,
+        plot_output=args.plot_output or None,
+        plot_title=args.plot_title,
+    )
 
     # Exit with non-zero if any failures
     sys.exit(0 if report.failed == 0 else 1)

@@ -39,6 +39,11 @@ class _AgentMixin:
         text = str(error).lower()
         return "rate_limit_exceeded" in text or "rate limit" in text
 
+    @staticmethod
+    def _is_request_too_large_error(error: Exception) -> bool:
+        text = str(error).lower()
+        return "request too large" in text or "error code: 413" in text
+
     def _switch_to_fallback_model(self, error: Exception) -> bool:
         current_model = getattr(self.llm, "model_name", "")
         fallback_model = get_fallback_model(current_model, error)
@@ -102,6 +107,9 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._is_request_too_large_error(e):
+                    logger.error(f"{self.name}: Provider rejected the request as too large.")
+                    raise Exception(f"{self.name}: request too large for model") from e
                 if self._switch_to_fallback_model(e):
                     continue
                 if self._is_rate_limit_error(e):
@@ -132,6 +140,9 @@ class BaseAgent(_AgentMixin, ABC):
                 logger.warning(
                     f"{self.name}: Async LLM call failed (attempt {attempt + 1}/{self.max_retries}): {str(e)}"
                 )
+                if self._is_request_too_large_error(e):
+                    logger.error(f"{self.name}: Provider rejected the async request as too large.")
+                    raise Exception(f"{self.name}: request too large for model") from e
                 if self._switch_to_fallback_model(e):
                     continue
                 if self._is_rate_limit_error(e):

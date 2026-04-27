@@ -74,3 +74,28 @@ def test_query_maps_provider_rate_limit_to_429(monkeypatch):
     assert response.status_code == 429
     assert "rate limit" in response.json()["detail"].lower()
     assert "llama-3.1-8b-instant" in response.json()["detail"]
+
+
+def test_query_maps_request_too_large_to_413(monkeypatch):
+    class _Graph:
+        async def ainvoke(self, state):
+            raise Exception("Orchestrator: request too large for model")
+
+    class _Builder:
+        def __init__(self, config):
+            self.config = config
+
+        def build(self):
+            return _Graph()
+
+    monkeypatch.setattr(routes, "MoEGraphBuilder", _Builder)
+    monkeypatch.setattr(routes.MoEConfig, "validate", lambda self: True)
+
+    client = _build_client()
+    response = client.post(
+        "/api/query",
+        json={"query": "hello", "model": "llama-3.1-8b-instant"},
+    )
+
+    assert response.status_code == 413
+    assert "request too large" in response.json()["detail"].lower()

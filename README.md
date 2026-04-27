@@ -98,7 +98,8 @@ api/
 ├── routes.py              # /health, /init, /query endpoints
 └── schemas.py             # Request/response models
 benchmarks/
-├── run.py                 # Benchmark CLI with slice modes
+├── run.py                 # Benchmark CLI with slice modes plus JSON/plot export
+├── plotting.py            # Benchmark JSON export helpers and comparison plots
 └── suite.py               # BenchmarkSuite, reports, standard cases
 frontend/
 └── src/                   # React dashboard
@@ -215,6 +216,7 @@ Backend health: `http://127.0.0.1:8000/api/health`
 - **Semantic Memory Graph**: Successful runs now persist full semantic atom payloads, dependency edges, compressed plan motifs, and learning aggregates into the registry.
 - **Graph-Shaped Retrieval**: The orchestrator now uses atom-level few-shot hints, dependency neighborhoods, plan motifs, and metadata-biased candidate search instead of relying on script-level retrieval alone.
 - **Evaluation Slices**: The benchmark CLI now supports `--selection-bias-slice`, `--warm-task-slice`, repeats/family aggregates, and `--model` overrides that apply to both orchestrator and expert calls.
+- **Benchmark Visuals**: `benchmarks.run` can now emit JSON summaries and save comparison plots for before/after evaluation slices.
 - **Sandbox Contract Hardening**: `query_agent(...)` handles are task-compatible for scheduling patterns, and the prompt contract now explicitly warns against accessing `.text` or `.atoms` before `await`.
 
 ---
@@ -409,6 +411,12 @@ python -m benchmarks.run --repeats 5 --warm-task-slice
 
 # Use a smaller model for quota-aware smoke slices (applies to orchestrator and experts)
 python -m benchmarks.run --model llama-3.1-8b-instant --filter single_technical --selection-bias-slice
+
+# Save a before/after slice as JSON plus a comparison figure
+python -m benchmarks.run --model llama-3.1-8b-instant --repeats 5 --selection-bias-slice --output-json artifacts/selection_bias.json --plot-output artifacts/selection_bias.png
+
+# Re-render a saved benchmark JSON into a plot with a custom title
+python -m benchmarks.plotting artifacts/selection_bias.json --output artifacts/selection_bias.pdf --title "Selection-Bias Slice"
 ```
 
 ---

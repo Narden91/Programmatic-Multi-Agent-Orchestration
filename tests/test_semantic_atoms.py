@@ -101,6 +101,20 @@ def test_orchestrator_prompt_mentions_optional_atoms_contract():
     assert "res.atoms" in prompt
     assert "atom_id" in prompt
     assert "Never access `.text`, `.atoms`" in prompt
+    assert "user-facing deliverable" in prompt
+    assert 'Do NOT return editorial phrases like "Based on the analysis"' in prompt
+
+
+def test_retry_prompt_requires_direct_user_answer():
+    prompt = OrchestratorPrompts.create_retry_prompt(
+        query="Write a short story about AI discovering emotions",
+        failed_code="async def orchestrate():\n    return 'draft'",
+        error="Returned critique instead of a story",
+        available_experts=["creative", "general"],
+    )
+
+    assert "direct answer to the user's request" in prompt
+    assert "not critique, evaluation notes" in prompt
 
 
 def test_orchestrator_prompt_supports_atom_level_few_shots():

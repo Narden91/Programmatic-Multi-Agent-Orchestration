@@ -279,6 +279,84 @@ async def orchestrate():
 
 
 @pytest.mark.asyncio
+async def test_low_budget_model_compacts_prompt_context(monkeypatch):
+    registry_rows = [
+        {
+            "task_description": "Explain a large technical system",
+            "script_content": "async def orchestrate():\n" + ("    detail = 'x'\n" * 2200),
+            "score": 0.9,
+            "similarity": 0.95,
+            "metadata": {},
+        }
+    ]
+    atom_rows = [
+        {
+            "task_description": "Explain a large technical system",
+            "agent_type": "technical",
+            "confidence": 0.95,
+            "dependencies": ["dep-1"],
+            "evidence_tags": ["architecture"],
+            "payload": {"text": "A" * 6000, "content_hash": "hash-1"},
+        }
+    ]
+    dummy_registry = DummyRegistry(registry_rows, atom_rows)
+    dummy_registry.neighborhood_rows = [
+        {
+            "seed": {
+                "task_description": "Explain a large technical system",
+                "agent_type": "technical",
+                "atom_id": "seed-1",
+                "similarity": 0.9,
+                "payload": {"text": "B" * 3000},
+            },
+            "neighbors": [
+                {"atom_id": "n-1", "payload": {"text": "C" * 2000}},
+            ],
+            "edges": [
+                {"source_atom_id": "seed-1", "target_atom_id": "n-1", "edge_type": "dependency"},
+            ],
+        }
+    ]
+    dummy_registry.plan_rows = [
+        {
+            "script_id": 1,
+            "motif_index": 0,
+            "task_description": "Explain a large technical system",
+            "motif_text": "parallel group 1 technical via query_agent " + ("p" * 2500),
+            "expert_type": "technical",
+            "is_parallel": True,
+            "group_id": 1,
+            "similarity": 0.9,
+        }
+    ]
+
+    monkeypatch.setattr(
+        "src.agents.orchestrator.OrchestrationRegistry",
+        lambda *args, **kwargs: dummy_registry,
+    )
+
+    llm = StubLLM(["""```python
+async def orchestrate():
+    return 'ok'
+```"""])
+    llm.model_name = "llama-3.1-8b-instant"
+    agent = OrchestratorAgent(
+        llm_provider=llm,
+        available_experts=["technical"],
+        candidate_count=1,
+        script_few_shot_count=1,
+        atom_few_shot_count=2,
+    )
+
+    state = create_initial_state("Explain a large technical system")
+    result = await agent.execute(state)
+
+    assert len(llm.prompts[0]) <= 16000
+    assert "Here are examples of previously successful orchestration scripts" not in llm.prompts[0]
+    assert result["reasoning_steps"][0]["details"]["few_shot_count"] == 0
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_prompt_includes_atom_graph_hints(monkeypatch):
     registry = DummyRegistry(
         rows=[

@@ -8,6 +8,8 @@ from typing import Dict, Optional
 try:
     from sentence_transformers import SentenceTransformer
     # Silence transformers/sentence_transformers logging by default
+    logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+    logging.getLogger("huggingface_hub.file_download").setLevel(logging.ERROR)
     logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
     logging.getLogger("transformers").setLevel(logging.ERROR)
 except ImportError:

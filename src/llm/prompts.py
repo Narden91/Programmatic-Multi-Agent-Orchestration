@@ -168,6 +168,8 @@ Instructions:
 3a. Never access `.text`, `.atoms`, or other result fields on `query_agent(...)` until after you have awaited that call or received the resolved result from `asyncio.gather`.
 4. You MUST define exactly ONE function called `async def orchestrate():` with no parameters.
 5. In your `orchestrate` function, write the logic to gather the information, and then clearly RETURN a single final string with the comprehensive answer based on everything gathered. Do NOT print the final answer instead of returning it.
+5a. The returned string must be the user-facing deliverable, not meta-commentary about how good the draft is. If the user asks for a story, return the story itself. If the user asks for code, return the code or explanation itself. Keep evaluation, critique, scoring, and improvement notes internal unless the user explicitly asked for critique.
+5b. Do NOT return editorial phrases like "Based on the analysis", "To further refine", "areas for improvement", or quality-review summaries unless the user explicitly requested that kind of analysis.
 6. Only output valid Python code inside a single ```python codeblock. Do not output anything outside the codeblock.
 7. You may use standard Python string manipulation and conditional logic (`if`/`else`).
 8. You do NOT need to import the tool functions or `asyncio`; they are already injected into the global namespace.
@@ -237,6 +239,7 @@ Available async functions (tools):
 2a. If the failure mentions `.text`, `.atoms`, or a tracked query handle, await the `query_agent(...)` call before accessing result fields.
 3. You MUST define exactly ONE function called `async def orchestrate():` with no parameters.
 4. The function must RETURN a single final string.
+4a. That returned string must be the direct answer to the user's request, not critique, evaluation notes, or suggestions for future refinement unless the user explicitly asked for critique.
 5. Only output valid Python code inside a single ```python codeblock.
 6. You do NOT need to import the tool functions or `asyncio`; they are already in the global namespace.
 7. Do NOT use `import` statements — they are blocked by the sandbox.

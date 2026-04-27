@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import re
 from .base import BaseAgent, AsyncBaseAgent
 from .registry import registry
@@ -11,6 +11,14 @@ from ..core.registry import OrchestrationRegistry
 from ..core.scoring import ScriptScorer
 from ..utils.tracing import get_tracer, TraceEvent, TraceKind
 from ..core.sandbox import CodeSandbox, SandboxPolicy
+
+
+_LOW_BUDGET_MODELS = {
+    "llama-3.1-8b-instant",
+    "llama3-8b-8192",
+    "gemma2-9b-it",
+}
+_LOW_BUDGET_PROMPT_CHAR_LIMIT = 16_000
 
 
 @dataclass
@@ -235,6 +243,80 @@ class OrchestratorAgent(BaseAgent):
             f"Mode-Specific Bias: {mode.instructions}\n"
             "Ensure this candidate meaningfully reflects the mode above rather than repeating a generic orchestration pattern."
         )
+
+    def _is_low_budget_model(self) -> bool:
+        return getattr(self.llm, "model_name", "") in _LOW_BUDGET_MODELS
+
+    def _build_orchestration_prompt(
+        self,
+        *,
+        query: str,
+        descriptions: Dict[str, str],
+        conversation_context: str,
+        few_shot: List[Tuple[str, str]],
+        atom_few_shot: List[Dict[str, Any]],
+        neighborhood_few_shot: List[Dict[str, Any]],
+        plan_few_shot: List[Dict[str, Any]],
+    ) -> str:
+        return self.prompts.create_orchestration_prompt(
+            query=query,
+            available_experts=self.available_experts,
+            expert_descriptions=descriptions,
+            few_shot_examples=few_shot or None,
+            atom_few_shot_examples=atom_few_shot or None,
+            atom_graph_examples=neighborhood_few_shot or None,
+            plan_graph_examples=plan_few_shot or None,
+            conversation_context=conversation_context,
+        )
+
+    def _select_prompt_payload(
+        self,
+        *,
+        query: str,
+        descriptions: Dict[str, str],
+        conversation_context: str,
+        few_shot: List[Tuple[str, str]],
+        atom_few_shot: List[Dict[str, Any]],
+        neighborhood_few_shot: List[Dict[str, Any]],
+        plan_few_shot: List[Dict[str, Any]],
+    ) -> tuple[str, List[Tuple[str, str]], List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+        prompt = self._build_orchestration_prompt(
+            query=query,
+            descriptions=descriptions,
+            conversation_context=conversation_context,
+            few_shot=few_shot,
+            atom_few_shot=atom_few_shot,
+            neighborhood_few_shot=neighborhood_few_shot,
+            plan_few_shot=plan_few_shot,
+        )
+        if not self._is_low_budget_model() or len(prompt) <= _LOW_BUDGET_PROMPT_CHAR_LIMIT:
+            return prompt, few_shot, atom_few_shot, neighborhood_few_shot, plan_few_shot
+
+        candidates = [
+            (few_shot[:1], atom_few_shot[:2], neighborhood_few_shot[:1], plan_few_shot[:1]),
+            ([], atom_few_shot[:1], neighborhood_few_shot[:1], plan_few_shot[:1]),
+            ([], atom_few_shot[:1], [], []),
+            ([], [], [], []),
+        ]
+
+        selected_prompt = prompt
+        selected_payload = (few_shot, atom_few_shot, neighborhood_few_shot, plan_few_shot)
+        for candidate in candidates:
+            candidate_prompt = self._build_orchestration_prompt(
+                query=query,
+                descriptions=descriptions,
+                conversation_context=conversation_context,
+                few_shot=candidate[0],
+                atom_few_shot=candidate[1],
+                neighborhood_few_shot=candidate[2],
+                plan_few_shot=candidate[3],
+            )
+            selected_prompt = candidate_prompt
+            selected_payload = candidate
+            if len(candidate_prompt) <= _LOW_BUDGET_PROMPT_CHAR_LIMIT:
+                break
+
+        return selected_prompt, *selected_payload
     
     async def execute(self, state: MoEState) -> Dict[str, Any]:
         query = state['query']
@@ -281,15 +363,14 @@ class OrchestratorAgent(BaseAgent):
                 expert_descriptions=descriptions,
             )
         else:
-            prompt = self.prompts.create_orchestration_prompt(
+            prompt, few_shot, atom_few_shot, neighborhood_few_shot, plan_few_shot = self._select_prompt_payload(
                 query=query,
-                available_experts=self.available_experts,
-                expert_descriptions=descriptions,
-                few_shot_examples=few_shot or None,
-                atom_few_shot_examples=atom_few_shot or None,
-                atom_graph_examples=neighborhood_few_shot or None,
-                plan_graph_examples=plan_few_shot or None,
+                descriptions=descriptions,
                 conversation_context=conversation_context,
+                few_shot=few_shot,
+                atom_few_shot=atom_few_shot,
+                neighborhood_few_shot=neighborhood_few_shot,
+                plan_few_shot=plan_few_shot,
             )
 
         # Trace: orchestrator start / retry
@@ -907,6 +988,108 @@ class CodeExecutionAgent(AsyncBaseAgent):
         self.orchestration_registry = OrchestrationRegistry(db_path=registry_db_path)
         self.scorer = ScriptScorer()
 
+    @staticmethod
+    def _looks_like_meta_answer(text: str) -> bool:
+        lowered = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if len(lowered) < 40:
+            return False
+
+        meta_phrases = (
+            "based on the analysis",
+            "analysis and evaluation",
+            "to further refine",
+            "areas for improvement",
+            "quality score",
+            "i would suggest",
+            "editorial feedback",
+            "improvement suggestions",
+            "the response could be improved",
+            "the draft could be improved",
+            "logical consistency",
+            "emotional resonance",
+            "character development",
+            "thematic resonance",
+            "overall, the story",
+            "has been refined to address",
+        )
+        return any(phrase in lowered for phrase in meta_phrases)
+
+    @staticmethod
+    def _preferred_answer_sources(query: str) -> List[str]:
+        lowered = str(query or "").lower()
+
+        if any(keyword in lowered for keyword in (
+            "write",
+            "story",
+            "poem",
+            "script",
+            "dialogue",
+            "email",
+            "letter",
+            "slogan",
+            "pitch",
+            "headline",
+            "lyrics",
+            "speech",
+        )):
+            return ["creative", "general", "technical", "analytical"]
+
+        if any(keyword in lowered for keyword in (
+            "code",
+            "implement",
+            "debug",
+            "python",
+            "function",
+            "api",
+            "architecture",
+            "algorithm",
+        )):
+            return ["technical", "general", "analytical", "creative"]
+
+        if any(keyword in lowered for keyword in (
+            "compare",
+            "analysis",
+            "analyze",
+            "tradeoff",
+            "pros",
+            "cons",
+            "evaluate",
+        )):
+            return ["analytical", "general", "technical", "creative"]
+
+        return ["general", "technical", "analytical", "creative"]
+
+    def _select_user_facing_answer(
+        self,
+        *,
+        query: str,
+        final_answer: str,
+        expert_responses: Optional[Dict[str, str]],
+    ) -> str:
+        normalized_final = str(final_answer or "").strip()
+        if normalized_final and not self._looks_like_meta_answer(normalized_final):
+            return normalized_final
+
+        candidates: List[tuple[str, str]] = []
+        for agent_type, response in (expert_responses or {}).items():
+            if agent_type == "critical-thinker":
+                continue
+
+            candidate = str(response or "").strip()
+            if not candidate or self._looks_like_meta_answer(candidate):
+                continue
+            candidates.append((agent_type, candidate))
+
+        if not candidates:
+            return normalized_final
+
+        for preferred_agent in self._preferred_answer_sources(query):
+            for agent_type, candidate in candidates:
+                if agent_type == preferred_agent:
+                    return candidate
+
+        return max(candidates, key=lambda item: len(item[1]))[1]
+
     def _summarize_trace(self, trace: List[Dict[str, Any]]) -> Dict[str, Any]:
         agent_spans = [item for item in trace if item.get("type") == "agent"]
         atom_counts = [
@@ -1017,6 +1200,11 @@ class CodeExecutionAgent(AsyncBaseAgent):
             trace = execution_result.get("trace", [])
             atom_payloads = self._extract_atom_payloads(trace)
             token_summary = get_token_tracker().summary()
+            final_answer = self._select_user_facing_answer(
+                query=query,
+                final_answer=execution_result.get("result", ""),
+                expert_responses=execution_result.get("expert_responses", {}),
+            )
             execution_metrics = self._build_execution_metrics(
                 state,
                 iterations=iterations,
@@ -1025,7 +1213,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
 
             # Start returning state early so scorer can use it
             temp_state = {
-                "final_answer": execution_result["result"],
+                "final_answer": final_answer,
                 "trace_dna": trace
             }
             
@@ -1052,7 +1240,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
             ))
 
             return {
-                "final_answer": execution_result["result"],
+                "final_answer": final_answer,
                 "selected_experts": execution_result["selected_experts"],
                 "expert_responses": execution_result["expert_responses"],
                 "trace_dna": trace,
@@ -1068,7 +1256,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
                 "reasoning_steps": [self._log_step(
                     action="Executed Code Successfully",
                     details={
-                        "result_length": len(execution_result["result"]),
+                        "result_length": len(final_answer),
                         "experts_called": execution_result["selected_experts"],
                         "parallel_groups": plan.gather_groups,
                     }
