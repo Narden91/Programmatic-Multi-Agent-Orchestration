@@ -8,25 +8,28 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(dotenv_path=_PROJECT_ROOT / ".env", override=True)
 
-DEFAULT_LLM_MODEL = "llama-3.1-8b-instant"
+DEFAULT_LLM_MODEL = "openai/gpt-oss-120b"
 DEPRECATED_MODEL_REPLACEMENTS: Dict[str, str] = {
+    "llama-3.1-8b-instant": DEFAULT_LLM_MODEL,
     "llama-3.1-70b-versatile": DEFAULT_LLM_MODEL,
+    "llama-3.3-70b-versatile": DEFAULT_LLM_MODEL,
+    "llama3-8b-8192": "openai/gpt-oss-20b",
+    "gpt-oss-120b": "openai/gpt-oss-120b",
+    "gpt-oss-20b": "openai/gpt-oss-20b",
+    "qwen-3.6-27b": "qwen/qwen3.6-27b",
 }
 MODEL_FALLBACKS: Dict[str, str] = {
+    "openai/gpt-oss-120b": "openai/gpt-oss-20b",
+    "llama-3.1-8b-instant": DEFAULT_LLM_MODEL,
     "llama-3.3-70b-versatile": DEFAULT_LLM_MODEL,
     "llama-3.1-70b-versatile": DEFAULT_LLM_MODEL,
 }
 GROQ_CHAT_MODELS = [
     DEFAULT_LLM_MODEL,
-    "gpt-oss-120b",
-    "gpt-oss-20b",
-    "qwen-3.6-27b",
-    "llama-3.3-70b-versatile",
-    "deepseek-r1-distill-llama-70b",
-    "llama-3.2-11b-vision-preview",
-    "llama-3.2-90b-vision-preview",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
+    "openai/gpt-oss-20b",
+    "qwen/qwen3.6-27b",
+    "groq/compound",
+    "groq/compound-mini",
 ]
 OPENAI_CHAT_MODELS = [
     "gpt-5.6-sol",
@@ -145,9 +148,10 @@ class LLMConfig:
     @classmethod
     def from_env(cls, prefix: str):
         """Create LLMConfig from environment variables"""
-        default_model = DEFAULT_LLM_MODEL
+        raw_model = os.getenv(f"{prefix}_MODEL", DEFAULT_LLM_MODEL)
+        model_name = DEPRECATED_MODEL_REPLACEMENTS.get(raw_model, raw_model)
         return cls(
-            model_name=os.getenv(f"{prefix}_MODEL", default_model),
+            model_name=model_name,
             temperature=float(os.getenv(f"{prefix}_TEMPERATURE", "0.5")),
             max_tokens=int(os.getenv("MAX_TOKENS", "2000")),
         )

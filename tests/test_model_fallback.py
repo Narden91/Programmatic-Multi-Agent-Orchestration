@@ -5,7 +5,7 @@ import pytest
 from src.agents.base import BaseAgent
 from src.core import agents as agents_module
 from src.core.agents import query_agent
-from src.core.config import LLMConfig, config
+from src.core.config import DEFAULT_LLM_MODEL, LLMConfig, config
 from src.llm.providers import LLMProvider
 
 
@@ -44,7 +44,7 @@ async def test_base_agent_switches_to_fallback_model():
     response = await agent.ainvoke_with_retry("hello")
 
     assert response.content == "ok"
-    assert agent.llm.model_name == "llama-3.1-8b-instant"
+    assert agent.llm.model_name == DEFAULT_LLM_MODEL
 
 
 @pytest.mark.asyncio
@@ -78,5 +78,5 @@ async def test_query_agent_switches_expert_to_fallback_model(monkeypatch):
         config.expert_configs["technical"].llm_config = original_config
         agents_module._prompt_cache.clear()
 
-    assert calls == ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-    assert result.metadata["model"] == "llama-3.1-8b-instant"
+    assert calls == ["llama-3.3-70b-versatile", DEFAULT_LLM_MODEL]
+    assert result.metadata["model"] == DEFAULT_LLM_MODEL

@@ -13,7 +13,7 @@ const initialState = {
   messages: [],
   config: {
     apiKey: '',
-    model: 'llama-3.1-8b-instant',
+    model: 'openai/gpt-oss-120b',
     hasEnvKey: false,
     version: '',
   },

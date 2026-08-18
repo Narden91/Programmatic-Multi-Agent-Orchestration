@@ -100,12 +100,17 @@ def _map_query_failure(error: Exception, model_name: str) -> HTTPException:
             ),
         )
 
-    if "model_decommissioned" in lowered or "decommissioned" in lowered:
+    if (
+        "model_not_found" in lowered
+        or "does not exist or you do not have access to it" in lowered
+        or "model_decommissioned" in lowered
+        or "decommissioned" in lowered
+    ):
         replacement = DEPRECATED_MODEL_REPLACEMENTS.get(model_name, DEFAULT_LLM_MODEL)
         return HTTPException(
             status_code=400,
             detail=(
-                f"The model `{model_name}` is no longer supported by the provider. "
+                f"The model `{model_name}` is not available on this endpoint. "
                 f"Try `{replacement}` instead."
             ),
         )

@@ -4,6 +4,9 @@ from fastapi.testclient import TestClient
 import api.routes as routes
 
 
+from src.core.config import DEFAULT_LLM_MODEL
+
+
 def _build_client() -> TestClient:
     app = FastAPI()
     app.include_router(routes.router, prefix="/api")
@@ -17,8 +20,8 @@ def test_init_exposes_supported_models_and_default_model():
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["default_model"] == "llama-3.1-8b-instant"
-    assert "llama-3.1-8b-instant" in payload["models"]
+    assert payload["default_model"] == DEFAULT_LLM_MODEL
+    assert DEFAULT_LLM_MODEL in payload["models"]
     assert "llama-3.1-70b-versatile" not in payload["models"]
 
 
@@ -47,7 +50,7 @@ def test_query_remaps_decommissioned_model_before_provider_call(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert seen["model"] == "llama-3.1-8b-instant"
+    assert seen["model"] == DEFAULT_LLM_MODEL
 
 
 def test_query_maps_provider_rate_limit_to_429(monkeypatch):
@@ -68,12 +71,12 @@ def test_query_maps_provider_rate_limit_to_429(monkeypatch):
     client = _build_client()
     response = client.post(
         "/api/query",
-        json={"query": "hello", "model": "llama-3.1-8b-instant"},
+        json={"query": "hello", "model": DEFAULT_LLM_MODEL},
     )
 
     assert response.status_code == 429
     assert "rate limit" in response.json()["detail"].lower()
-    assert "llama-3.1-8b-instant" in response.json()["detail"]
+    assert DEFAULT_LLM_MODEL in response.json()["detail"]
 
 
 def test_query_maps_request_too_large_to_413(monkeypatch):
