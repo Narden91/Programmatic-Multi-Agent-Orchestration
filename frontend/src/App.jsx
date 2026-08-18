@@ -13,7 +13,7 @@ const initialState = {
   messages: [],
   config: {
     apiKey: '',
-    model: 'openai/gpt-oss-120b',
+    model: 'openai/gpt-oss-20b',
     hasEnvKey: false,
     version: '',
   },
