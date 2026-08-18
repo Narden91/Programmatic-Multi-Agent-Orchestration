@@ -18,13 +18,36 @@ MODEL_FALLBACKS: Dict[str, str] = {
 }
 GROQ_CHAT_MODELS = [
     DEFAULT_LLM_MODEL,
+    "gpt-oss-120b",
+    "gpt-oss-20b",
+    "qwen-3.6-27b",
     "llama-3.3-70b-versatile",
-    "llama3-8b-8192",
+    "deepseek-r1-distill-llama-70b",
+    "llama-3.2-11b-vision-preview",
+    "llama-3.2-90b-vision-preview",
     "mixtral-8x7b-32768",
     "gemma2-9b-it",
 ]
-OPENAI_CHAT_MODELS = ["gpt-4o", "gpt-4o-mini"]
-ANTHROPIC_CHAT_MODELS = ["claude-3-5-sonnet-20240620", "claude-3-5-haiku-20241022"]
+OPENAI_CHAT_MODELS = [
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.4-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "o1",
+    "o3-mini",
+]
+ANTHROPIC_CHAT_MODELS = [
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-fable-5",
+    "claude-haiku-4-5",
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-latest",
+]
 
 
 def get_fallback_model(model_name: str, error: Exception | None = None) -> str | None:
@@ -197,6 +220,12 @@ class MoEConfig:
     )
     enable_metadata_selection_bias: bool = field(
         default_factory=lambda: _env_bool("ENABLE_METADATA_SELECTION_BIAS", "true")
+    )
+    enable_registry_compression: bool = field(
+        default_factory=lambda: _env_bool("ENABLE_REGISTRY_COMPRESSION", "true")
+    )
+    compression_min_bytes: int = field(
+        default_factory=lambda: _env_int("COMPRESSION_MIN_BYTES", 64)
     )
     registry_db_path: str = field(
         default_factory=lambda: _env_str("REGISTRY_DB_PATH", ".moe_registry.db")

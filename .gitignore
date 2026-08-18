@@ -50,3 +50,6 @@ htmlcov/
 # V3 Architecture state
 .moe_registry.db
 orchestration_registry.db
+
+# Artifacts
+artifacts/

@@ -48,6 +48,7 @@ class OrchestratorAgent(BaseAgent):
         atom_few_shot_count: int = 4,
         enable_atom_few_shot_retrieval: bool = True,
         enable_metadata_selection_bias: bool = True,
+        enable_compression: bool = True,
         registry_db_path: str = ".moe_registry.db",
     ):
         super().__init__("Orchestrator", llm_provider)
@@ -58,7 +59,10 @@ class OrchestratorAgent(BaseAgent):
         self.enable_atom_few_shot_retrieval = bool(enable_atom_few_shot_retrieval)
         self.enable_metadata_selection_bias = bool(enable_metadata_selection_bias)
         self.prompts = OrchestratorPrompts()
-        self.orchestration_registry = OrchestrationRegistry(db_path=registry_db_path)
+        self.orchestration_registry = OrchestrationRegistry(
+            db_path=registry_db_path,
+            enable_compression=enable_compression,
+        )
 
     @staticmethod
     def _build_script_examples(similar_rows: List[Dict[str, Any]]) -> List[tuple[str, str]]:
@@ -1031,6 +1035,7 @@ class CodeExecutionAgent(AsyncBaseAgent):
         timeout_seconds: int = 60,
         isolate_process: bool = True,
         sandbox_policy: Optional[SandboxPolicy] = None,
+        enable_compression: bool = True,
         registry_db_path: str = ".moe_registry.db",
     ):
         super().__init__("CodeExecutor")
@@ -1039,7 +1044,10 @@ class CodeExecutionAgent(AsyncBaseAgent):
             isolate_process=isolate_process,
             policy=sandbox_policy,
         )
-        self.orchestration_registry = OrchestrationRegistry(db_path=registry_db_path)
+        self.orchestration_registry = OrchestrationRegistry(
+            db_path=registry_db_path,
+            enable_compression=enable_compression,
+        )
         self.scorer = ScriptScorer()
 
     @staticmethod

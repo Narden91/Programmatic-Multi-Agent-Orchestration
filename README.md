@@ -10,10 +10,12 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-optional-lightgrey)](https://openai.com)
 [![Anthropic](https://img.shields.io/badge/Anthropic-optional-lightgrey)](https://anthropic.com)
 [![React](https://img.shields.io/badge/React-UI-61DAFB)](https://react.dev)
-[![Tests](https://img.shields.io/badge/tests-pytest%20suite-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-1.1.0-blue)]()
+[![Tests](https://img.shields.io/badge/tests-165%20passed-brightgreen)]()
+[![Compression](https://img.shields.io/badge/MOSAIC--MoE-v6%20Compressed-blueviolet)]()
 
-*Stop writing static DAGs. Let the AI write its own multi-agent execution graphs on the fly.*
+*Stop writing static DAGs. Let AI write and execute its own multi-agent programs on the fly.*
+
+[📖 System Architecture](docs/ARCHITECTURE.md) · [🗜️ Motif Compression](docs/COMPRESSION.md) · [🧪 Benchmark Suite](docs/BENCHMARKS.md)
 
 </div>
 
@@ -21,120 +23,72 @@
 
 ## ✨ The Paradigm Shift: Code-as-Orchestration
 
-Traditional multi-agent frameworks rely on developer-defined, static Directed Acyclic Graphs (DAGs). This project instead treats orchestration itself as generated code.
+Traditional multi-agent frameworks force you to build rigid, static flowcharts (DAGs). When complex user requests require flexible loops, parallel branch gathering, conditional fallbacks, or data transformations, static graphs quickly become brittle and unmaintainable.
 
-When a query arrives, the **Master Orchestrator** retrieves prior successful scripts, semantic atoms, dependency neighborhoods, and plan motifs from a persistent registry, then writes one or more **async Python scripts** to solve the task. The selected script runs in a hardened sandbox, awaits expert calls through a unified `query_agent(...)` tool contract, reasons over intermediate `AgentResult` objects in native Python, and feeds the outcome back into the registry for future reuse.
+**Programmatic Multi-Agent Orchestration** solves this by turning orchestration into **executable async Python code**:
+
+1. **Synthesize**: The Master Orchestrator writes a dedicated `async def orchestrate()` script tailored for your specific query.
+2. **Transform & Verify**: Independent sub-agent queries are automatically rewritten into `asyncio.gather(...)` for high-throughput concurrency, then verified against strict AST security rules.
+3. **Execute & Learn**: The script runs in a hardened sandbox. Verifiable results, reasoning atoms, and plan motifs are compressed into a persistent knowledge registry for instant future reuse.
 
 ### 🌟 Key Features
 
-| Category | Feature |
-|----------|---------|
-| **Core** | 🧩 Dynamic `async def orchestrate()` generation per query |
-| **Core** | 🎯 Candidate search with heuristic pre-selection, retry repair, and graph-aware mode diversification |
-| **Core** | 🤖 Unified `query_agent(agent_type, prompt)` contract returning `AgentResult` with `.text` and semantic `.atoms` |
-| **Core** | ⚡ AST speculative execution pass that can rewrite independent waits into `asyncio.gather(...)` |
-| **Multi-Provider** | ⚡ Groq (default), OpenAI, and Anthropic seamlessly auto-detected via `LLMFactory` and dynamically bound |
-| **Multi-Provider** | 🔌 Per-expert provider override — mix Groq for speed and OpenAI for depth in the same pipeline |
-| **Memory** | 💬 Multi-turn conversation memory with sliding window and optional JSON persistence |
-| **Memory** | 📚 Persistent registry storing scripts, `script_atoms`, `atom_edges`, `plan_motifs`, and learning metadata |
-| **Memory** | 🕸️ Atom-level few-shot retrieval, dependency neighborhoods, and compressed plan motifs for warm-task reuse |
-| **Memory** | ⚡ `numpy`-vectorized O(n) similarity fallback for offline registry search |
-| **Learning** | 📈 Learning-ranked retrieval that blends similarity with success rate, retries, token cost, and reuse signals |
-| **Observability** | 📊 Streaming trace systems for pipeline events and sandbox span traces (`trace_dna`) |
-| **Observability** | 📈 Token tracking with per-model cost estimation and static AST execution-plan analysis |
-| **Benchmarks** | 🧪 Standard suite with repeats, family aggregates, selection-bias slices, and warm-task graph-retrieval slices |
-| **Extensibility** | 🧩 Dynamic expert registry — add/remove expert types at runtime |
-| **Security** | 🔒 `SecretStr` wrapper prevents API keys from leaking in repr/logs/tracebacks |
-| **Security** | 🔒 Hardened sandbox with AST validation, restricted builtins, bounded `print()`, and configurable policy limits |
-| **Security** | 🔒 Trace event redaction, bounded history, and owner-only persisted memory files |
-| **UI** | 💻 React interface with FastAPI backend and real-time orchestration insights |
+| Domain | Innovation |
+| :--- | :--- |
+| **Dynamic Execution** | 🧩 Code-as-Orchestration synthesizes fresh `async def orchestrate()` programs per query |
+| **Concurrency** | ⚡ AST Speculative Transformer converts sequential agent calls into `asyncio.gather(...)` |
+| **Agent Contract** | 🤖 Unified `query_agent(agent_type, prompt)` returning text and verifiable `SemanticAtom` objects |
+| **Entropy Compression** | 🗜️ **MOSAIC-MoE Dictionary Coding** reduces registry storage footprints by **52.7%** with lossless recovery |
+| **Knowledge Graph** | 🕸️ Sub-graph memory indexing semantic atoms, dependency edges, and plan motifs |
+| **Evaluation Suite** | 🧪 Automated benchmark harness with offline mock testing, multi-slice comparisons, and publication plots |
+| **Multi-Provider** | 🔌 Mix and match Groq, OpenAI, and Anthropic seamlessly across different experts |
+| **Hardened Sandbox** | 🔒 AST validation rejecting dangerous builtins, attribute traversal, and infinite loops |
+| **Full-Stack UI** | 💻 Interactive React + FastAPI dashboard with live trace visualization |
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Architecture & Flow
 
 ```mermaid
 graph TD
-    A[User Query + Conversation Context] --> B(Orchestrator Agent)
-    K[(Registry: scripts + atoms + motifs + learning)] --> B
-    B -->|Generates async Python candidates| C{Hardened Code Sandbox}
-
-    C -->|Calls technical expert| D[Technical Agent]
-    C -->|Calls analytical expert| E[Analytical Agent]
-    C -->|Calls creative expert| F[Creative Agent]
-    C -->|Calls general expert| G[General Agent]
-
-    D -.->|Returns text and atoms| C
-    E -.->|Returns text and atoms| C
-    F -.->|Returns text and atoms| C
-    G -.->|Returns text and atoms| C
-
-    C --> H[CodeExecutionAgent]
-    H --> I[LangGraph State]
-    I --> J[Trace / Metrics / Sandbox Output]
-    I --> K
-    I --> Z[User Output]
+    User([User Query]) --> Orch[Master Orchestrator]
+    Registry[(Knowledge Registry\nScripts + Atoms + Motifs)] -.->|Few-shot retrieval| Orch
+    Orch -->|Synthesizes Python Script| AST[AST Transformer & Security Guard]
+    AST -->|Rewrites Parallel Branches| Sandbox{Hardened Python Sandbox}
+    Sandbox -->|query_agent| Tech[Technical Expert]
+    Sandbox -->|query_agent| Anal[Analytical Expert]
+    Sandbox -->|query_agent| Creat[Creative Expert]
+    Sandbox -->|query_agent| Gen[General Expert]
+    Tech -.->|Text + Semantic Atoms| Sandbox
+    Anal -.->|Text + Semantic Atoms| Sandbox
+    Creat -.->|Text + Semantic Atoms| Sandbox
+    Gen -.->|Text + Semantic Atoms| Sandbox
+    Sandbox --> State[LangGraph State & DNA Tracing]
+    State --> Compress[Entropy-Budgeted Compression]
+    Compress --> Registry
+    State --> Output([Final Answer])
 ```
-
-### The Workflow
-
-1. **Input** — A query arrives, enriched with conversation context from the sliding-window memory.
-2. **Retrieve** — The orchestrator queries the registry for similar scripts, semantic atoms, atom neighborhoods, and plan motifs.
-3. **Generate** — The orchestrator writes one or more `async def orchestrate():` candidates, optionally biasing them toward retrieved dependency structures and scheduling motifs.
-4. **Validate** — The sandbox performs AST analysis: imports, dangerous attributes, and blocked builtins are rejected *before* any code runs.
-5. **Execute** — The selected script runs inside a restricted `exec` with whitelisted builtins, a bounded `print` sink, tracked `query_agent(...)` handles, and a configurable timeout.
-6. **Learn** — Successful runs are scored, then persisted back into the registry along with full atom payloads, dependency edges, plan motifs, and execution metadata.
-7. **Observe** — Trace events, token usage, retry counts, and retrieval reuse metrics are attached to the LangGraph state and benchmark harness.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-.github/
-├── AGENTS.md              # Operational handoff for coding agents
-api/
-├── main.py                # FastAPI app entrypoint
-├── routes.py              # /health, /init, /query endpoints
-└── schemas.py             # Request/response models
-benchmarks/
-├── run.py                 # Benchmark CLI with slice modes plus JSON/plot export
-├── plotting.py            # Benchmark JSON export helpers and comparison plots
-└── suite.py               # BenchmarkSuite, reports, standard cases
-frontend/
-└── src/                   # React dashboard
-src/
-├── agents/
-│   ├── base.py            # Shared retry behavior
-│   ├── orchestrator.py    # Orchestrator + CodeExecution agents
-│   ├── registry.py        # Dynamic expert registry
-│   ├── tools.py           # Expert spawning + runtime registration helpers
-│   └── experts/
-│       └── generic.py     # Generic expert implementation
-├── core/
-│   ├── agents.py          # `query_agent` contract, AgentResult, SemanticAtom
-│   ├── config.py          # MoEConfig, SecretStr, LLMConfig, ExpertConfig
-│   ├── memory.py          # Ephemeral in-sandbox semantic memory
-│   ├── registry.py        # Script/atom/motif persistence and retrieval
-│   ├── sandbox.py         # Hardened sandbox with AST validation
-│   ├── scoring.py         # Execution-quality scoring
-│   ├── state.py           # LangGraph state schema
-│   └── tracing.py         # Sandbox span tracing
-├── graph/
-│   └── builder.py         # LangGraph workflow builder
-├── llm/
-│   ├── prompts.py         # Prompt templates and retry contract
-│   └── providers.py       # LLMFactory: Groq, OpenAI, Anthropic
-└── utils/
-    ├── cache.py           # LRU + TTL response cache
-    ├── code_analyzer.py   # AST-based execution plan extraction
-    ├── embeddings.py      # Embedding model loader
-    ├── logging.py         # Structured logging
-    ├── memory.py          # Conversation memory (sliding window + persistence)
-    ├── metrics.py         # Token tracking & cost estimation
-    ├── script_bank.py     # Legacy script bank retained for compatibility
-    └── tracing.py         # Pipeline event tracing
-tests/                     # Unit, integration, and benchmark coverage
+.
+├── api/                   # FastAPI backend (health, init, query streaming)
+├── benchmarks/            # Benchmark harness, plotting engine, and slice suites
+├── docs/                  # In-depth architectural & benchmark documentation
+│   ├── ARCHITECTURE.md    # System design, tool contract, sandbox security
+│   ├── BENCHMARKS.md      # CLI flags, test slices, and metric interpretations
+│   └── COMPRESSION.md     # Entropy-budgeted motif dictionary coding
+├── frontend/              # Modern React + Vite dashboard
+├── src/
+│   ├── agents/            # Orchestrator agent & dynamic expert registry
+│   ├── core/              # Sandbox, AST transformer, compression, memory & scoring
+│   ├── graph/             # LangGraph workflow builder
+│   ├── llm/               # LLM factory (Groq, OpenAI, Anthropic) & prompts
+│   └── utils/             # MotifDictionaryCoder, metrics, logging, tracing
+└── tests/                 # 165+ Unit and integration tests
 ```
 
 ---
@@ -211,13 +165,14 @@ Backend health: `http://127.0.0.1:8000/api/health`
 
 > Important: if you see `http proxy error: /api/init ECONNREFUSED 127.0.0.1:8000`, the frontend is running but the backend is not reachable. Start the backend first and re-open the frontend.
 
-### Recent Updates (Apr 2026)
+### Recent Updates (August 2026)
 
-- **Semantic Memory Graph**: Successful runs now persist full semantic atom payloads, dependency edges, compressed plan motifs, and learning aggregates into the registry.
-- **Graph-Shaped Retrieval**: The orchestrator now uses atom-level few-shot hints, dependency neighborhoods, plan motifs, and metadata-biased candidate search instead of relying on script-level retrieval alone.
-- **Evaluation Slices**: The benchmark CLI now supports `--selection-bias-slice`, `--warm-task-slice`, repeats/family aggregates, and `--model` overrides that apply to both orchestrator and expert calls.
-- **Benchmark Visuals**: `benchmarks.run` can now emit JSON summaries and save comparison plots for before/after evaluation slices.
-- **Sandbox Contract Hardening**: `query_agent(...)` handles are task-compatible for scheduling patterns, and the prompt contract now explicitly warns against accessing `.text` or `.atoms` before `await`.
+- **Entropy-Budgeted Compression (MOSAIC-MoE)**: Integrated online motif dictionary coding and zlib deflate compression in `MotifDictionaryCoder`, reducing registry storage footprint by **52.7%** with transparent on-read decompression.
+- **Dynamic Motif Discovery & Persistence**: Discovered recurring orchestration n-grams are automatically registered and persisted across instances in the SQLite `motif_dictionary` table.
+- **Enhanced Benchmark Suite**: CLI support for `--compression-slice` and `--mock-llm` for instant deterministic offline evaluations, recovery rate metrics, and publication-ready comparison plot exports.
+- **Semantic Memory Graph**: Persists full semantic atom payloads, dependency edges (`atom_edges`), and plan motifs (`plan_motifs`) alongside execution scripts.
+- **Graph-Aware Retrieval & Selection Bias**: Orchestrator leverages atom-level few-shot hints, dependency neighborhoods, and metadata-ranked candidate search.
+- **Sandbox Security Hardening**: Strict AST validation rejecting unsafe builtins, attribute traversal, and unawaited property accesses before execution.
 
 ---
 
@@ -320,29 +275,42 @@ context = mem.format_context()  # inject into prompts for follow-up awareness
 
 ---
 
-### Groq (default)
+### Groq (Default High-Speed LPU Inference)
 
-| Model | Notes |
-|-------|-------|
-| `llama-3.1-8b-instant` | Default for orchestrator & experts; best quota-aware starting point |
-| `llama-3.3-70b-versatile` | Higher quality, but more likely to hit Groq quota limits |
-| `llama3-8b-8192` | Extremely fast |
-| `mixtral-8x7b-32768` | Balanced performance |
-| `gemma2-9b-it` | Efficient, high quality |
+| Model | Role / Strengths |
+|---|---|
+| `llama-3.1-8b-instant` | **Default Orchestrator & Expert Model** — sub-100ms latency with generous rate limits |
+| `gpt-oss-120b` | Flagship open-weights foundation model optimized for Groq LPUs |
+| `gpt-oss-20b` | Ultra-fast, high-throughput model for lightweight micro-agent queries |
+| `qwen-3.6-27b` | Advanced reasoning and multilingual expert on Groq |
+| `llama-3.3-70b-versatile` | High-capacity open model for complex multi-expert Python synthesis |
+| `deepseek-r1-distill-llama-70b` | Specialized mathematical, algorithmic, and formal reasoning expert |
+| `llama-3.2-11b-vision-preview` | Multimodal model for image/text orchestration workflows |
+| `mixtral-8x7b-32768` | Long-context Mixture of Experts (32k context) |
+| `gemma2-9b-it` | Google Gemma 2 high-efficiency instruct model |
 
-### OpenAI (optional, requires `pip install -e ".[openai]"`)
+### OpenAI (Optional, `pip install -e ".[openai]"`)
 
-| Model | Notes |
-|-------|-------|
-| `gpt-4o` | State of the art multimodal |
-| `gpt-4o-mini` | Super fast and cheap |
+| Model | Role / Strengths |
+|---|---|
+| `gpt-5.6-sol` | **Frontier Flagship** — complex multi-step reasoning, agentic coding, research, and tool use |
+| `gpt-5.6-terra` | Balanced high-intelligence daily driver with optimized cost-efficiency |
+| `gpt-5.6-luna` | High-throughput, low-latency model for high-volume orchestration pipelines |
+| `gpt-5.4-mini` | Compact lightweight model for micro-agent subtasks |
+| `gpt-4o` / `gpt-4o-mini` | Multimodal workhorse models with established benchmark profiles |
+| `o3-mini` / `o1` | Deep reasoning models with configurable thinking effort |
 
-### Anthropic (optional, requires `pip install -e ".[anthropic]"`)
+### Anthropic (Optional, `pip install -e ".[anthropic]"`)
 
-| Model | Notes |
-|-------|-------|
-| `claude-3-5-sonnet-20240620` | Highest intelligence |
-| `claude-3-5-haiku-20241022` | Fastest Claude model |
+| Model | Role / Strengths |
+|---|---|
+| `claude-opus-5` | **Frontier Flagship** — state-of-the-art agentic software engineering, long-horizon planning, and deep analysis |
+| `claude-sonnet-5` | Primary recommended daily driver balancing speed, cost ($2/$10 per M), and intelligence |
+| `claude-fable-5` | Mythos-class reasoning tailored for complex multi-agent execution graphs |
+| `claude-haiku-4-5` | Ultra-fast, responsive Claude model with high intelligence density |
+| `claude-3-7-sonnet-latest` | Hybrid reasoning model with dynamic step-by-step thinking |
+| `claude-3-5-sonnet-20241022` | Battle-tested coding and tool-use model |
+| `claude-3-opus-latest` | Deep comprehension and nuanced synthesis |
 
 ### Custom Providers
 

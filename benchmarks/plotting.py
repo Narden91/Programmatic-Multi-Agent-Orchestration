@@ -48,6 +48,39 @@ _METRIC_SPECS = (
     },
 )
 
+_COMPRESSION_METRIC_SPECS = (
+    {
+        "key": "storage_bytes_mean",
+        "label": "Storage Footprint\nMean Bytes",
+        "delta_key": "delta_storage_bytes_mean",
+        "lower_is_better": True,
+    },
+    {
+        "key": "space_savings_pct",
+        "label": "Space Savings\nPercent (%)",
+        "delta_key": "delta_space_savings_pct",
+        "lower_is_better": False,
+    },
+    {
+        "key": "compression_ratio",
+        "label": "Compression Ratio\n(Compressed / Raw)",
+        "delta_key": "delta_compression_ratio",
+        "lower_is_better": True,
+    },
+    {
+        "key": "elapsed_mean_seconds",
+        "label": "Latency\nMean Seconds",
+        "delta_key": "delta_elapsed_mean_seconds",
+        "lower_is_better": True,
+    },
+    {
+        "key": "success_rate_pct",
+        "label": "Success Rate\nPercent (%)",
+        "delta_key": "delta_success_rate_pct",
+        "lower_is_better": False,
+    },
+)
+
 _COLOR_CYCLE = (
     "#6C757D",
     "#0072B2",
@@ -88,6 +121,16 @@ def build_comparison_payload(
     model_name: Optional[str] = None,
     repeats: int = 1,
 ) -> Dict[str, Any]:
+    variants = []
+    for variant in comparison.variants:
+        summary = variant.report.summary()
+        extra = getattr(variant.report, "extra_metrics", None)
+        if extra and isinstance(extra, dict):
+            summary.update(extra)
+        variants.append({
+            "name": variant.name,
+            "summary": summary,
+        })
     return {
         "mode": "comparison",
         "slice": slice_name,
@@ -95,13 +138,7 @@ def build_comparison_payload(
         "model": model_name,
         "repeats": repeats,
         "comparison": comparison.summary(),
-        "variants": [
-            {
-                "name": variant.name,
-                "summary": variant.report.summary(),
-            }
-            for variant in comparison.variants
-        ],
+        "variants": variants,
     }
 
 
@@ -127,7 +164,14 @@ def render_benchmark_plot(
         raise ValueError("Benchmark payload does not contain any variants.")
 
     first_summary = variants[0].get("summary") or {}
-    metric_specs = [spec for spec in _METRIC_SPECS if spec["key"] in first_summary]
+    slice_name = payload.get("slice")
+    if slice_name == "compression":
+        metric_specs = [spec for spec in _COMPRESSION_METRIC_SPECS if spec["key"] in first_summary]
+        if not metric_specs:
+            metric_specs = [spec for spec in _METRIC_SPECS if spec["key"] in first_summary]
+    else:
+        metric_specs = [spec for spec in _METRIC_SPECS if spec["key"] in first_summary]
+
     if not metric_specs:
         raise ValueError("Benchmark payload does not contain plot-friendly metrics.")
 
@@ -136,31 +180,30 @@ def render_benchmark_plot(
 
     plt.rcParams.update({
         "font.family": "DejaVu Sans",
-        "axes.titlesize": 11,
-        "axes.labelsize": 10,
+        "axes.titlesize": 10.5,
+        "axes.labelsize": 9.5,
         "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
+        "ytick.labelsize": 8.5,
     })
 
     fig, axes = plt.subplots(
         rows,
         columns,
-        figsize=(4.4 * columns, 3.1 * rows),
-        constrained_layout=True,
+        figsize=(4.8 * columns, 3.5 * rows),
     )
     axes_list = list(axes.flat) if hasattr(axes, "flat") else [axes]
 
-    fig.suptitle(title or _default_title(payload), fontsize=15, fontweight="bold")
+    fig.suptitle(title or _default_title(payload), fontsize=13.5, fontweight="bold", y=0.98)
     subtitle = _build_subtitle(payload)
     if subtitle:
-        fig.text(0.5, 0.985, subtitle, ha="center", va="top", fontsize=9, color="#4A4A4A")
+        fig.text(0.5, 0.94, subtitle, ha="center", va="top", fontsize=9, color="#555555")
     fig.text(
         0.5,
-        0.01,
-        "Lower is better for cost, latency, and retries. Higher is better for success and reuse.",
+        0.02,
+        "Lower is better for cost, latency, retries, and bytes. Higher is better for success, reuse, and savings.",
         ha="center",
-        fontsize=9,
-        color="#4A4A4A",
+        fontsize=8.5,
+        color="#555555",
     )
 
     for axis, spec in zip(axes_list, metric_specs):
@@ -168,6 +211,8 @@ def render_benchmark_plot(
 
     for axis in axes_list[len(metric_specs):]:
         fig.delaxes(axis)
+
+    plt.subplots_adjust(top=0.86, bottom=0.14, hspace=0.48, wspace=0.32)
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -209,16 +254,15 @@ def _default_title(payload: Dict[str, Any]) -> str:
 
 
 def _plot_metric_axis(axis: Any, payload: Dict[str, Any], variants: Sequence[Dict[str, Any]], spec: Dict[str, Any]) -> None:
-    labels = [str(variant.get("name", "variant")).replace("_", " ") for variant in variants]
+    labels = [str(variant.get("name", "variant")).replace("_", "\n") for variant in variants]
     values = [float((variant.get("summary") or {}).get(spec["key"], 0.0)) for variant in variants]
     colors = [_COLOR_CYCLE[index % len(_COLOR_CYCLE)] for index in range(len(variants))]
     positions = list(range(len(labels)))
-    bars = axis.bar(positions, values, color=colors, width=0.62)
+    bars = axis.bar(positions, values, color=colors, width=0.55)
 
-    axis.set_title(spec["label"], fontweight="bold")
+    axis.set_title(spec["label"], fontweight="bold", pad=10)
     axis.set_xticks(positions)
-    rotation = 15 if any(len(label) > 12 for label in labels) else 0
-    axis.set_xticklabels(labels, rotation=rotation, ha="right" if rotation else "center")
+    axis.set_xticklabels(labels, ha="center")
     axis.yaxis.grid(True, linestyle="--", alpha=0.35)
     axis.set_axisbelow(True)
     axis.spines["top"].set_visible(False)
@@ -227,13 +271,14 @@ def _plot_metric_axis(axis: Any, payload: Dict[str, Any], variants: Sequence[Dic
     max_value = max(values) if values else 0.0
     upper_bound = _upper_bound(spec["key"], max_value)
     axis.set_ylim(0, upper_bound)
-    offset = max(upper_bound * 0.045, 0.03)
+    offset = max(upper_bound * 0.035, 0.02)
 
     for bar, value, label in zip(bars, values, labels):
-        delta = _lookup_delta(payload, label.replace(" ", "_"), spec["delta_key"])
+        lookup_name = label.replace("\n", "_")
+        delta = _lookup_delta(payload, lookup_name, spec["delta_key"])
         text = _format_metric_value(value, spec["key"])
         if delta is not None:
-            text = f"{text}\nΔ {_format_delta_value(delta, spec['key'])}"
+            text = f"{text}\n(Δ {_format_delta_value(delta, spec['key'])})"
 
         axis.text(
             bar.get_x() + bar.get_width() / 2,
@@ -241,20 +286,20 @@ def _plot_metric_axis(axis: Any, payload: Dict[str, Any], variants: Sequence[Dic
             text,
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=8.5,
             fontweight="bold",
             color=_delta_color(delta, spec["lower_is_better"]),
         )
 
 
 def _upper_bound(metric_key: str, max_value: float) -> float:
-    if metric_key == "success_rate_pct":
-        return max(100.0, max_value * 1.15 or 100.0)
-    if metric_key == "neighborhood_reuse_rate_mean":
-        return max(1.0, max_value * 1.15 or 1.0)
+    if metric_key in ("success_rate_pct", "space_savings_pct"):
+        return max(130.0, max_value * 1.35 if max_value > 0 else 130.0)
+    if metric_key in ("neighborhood_reuse_rate_mean", "compression_ratio"):
+        return max(1.35, max_value * 1.35 if max_value > 0 else 1.35)
     if max_value <= 0:
         return 1.0
-    return max_value * 1.2
+    return max_value * 1.38
 
 
 def _lookup_delta(payload: Dict[str, Any], variant_name: str, delta_key: str) -> Optional[float]:
@@ -266,23 +311,35 @@ def _lookup_delta(payload: Dict[str, Any], variant_name: str, delta_key: str) ->
 
 
 def _format_metric_value(value: float, metric_key: str) -> str:
-    if metric_key == "success_rate_pct":
+    if metric_key in ("success_rate_pct", "space_savings_pct"):
         return f"{value:.1f}%"
+    if metric_key == "compression_ratio":
+        return f"{value:.2f}x" if value < 1.0 else f"{value:.2f}"
+    if metric_key == "storage_bytes_mean":
+        return f"{value:.1f} B"
     if metric_key == "tokens_mean":
-        return f"{value:.1f}"
+        return f"{value:.0f}"
+    if metric_key == "elapsed_mean_seconds":
+        return f"{value:.2f}s"
     if abs(value) >= 10:
-        return f"{value:.2f}"
-    return f"{value:.3f}"
+        return f"{value:.1f}"
+    return f"{value:.2f}"
 
 
 def _format_delta_value(delta: float, metric_key: str) -> str:
-    if metric_key == "success_rate_pct":
-        return f"{delta:+.1f} pts"
-    if metric_key == "tokens_mean":
-        return f"{delta:+.1f}"
-    if abs(delta) >= 10:
+    if metric_key in ("success_rate_pct", "space_savings_pct"):
+        return f"{delta:+.1f}%"
+    if metric_key == "compression_ratio":
         return f"{delta:+.2f}"
-    return f"{delta:+.3f}"
+    if metric_key == "storage_bytes_mean":
+        return f"{delta:+.1f} B"
+    if metric_key == "tokens_mean":
+        return f"{delta:+.0f}"
+    if metric_key == "elapsed_mean_seconds":
+        return f"{delta:+.2f}s"
+    if abs(delta) >= 10:
+        return f"{delta:+.1f}"
+    return f"{delta:+.2f}"
 
 
 def _delta_color(delta: Optional[float], lower_is_better: bool) -> str:

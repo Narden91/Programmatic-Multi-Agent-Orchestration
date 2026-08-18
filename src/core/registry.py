@@ -4,17 +4,28 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 from src.utils.embeddings import get_embedding_model
+from src.utils.compression import MotifDictionaryCoder, get_default_coder
 
 class OrchestrationRegistry:
     """
     Registry for storing and retrieving successful orchestration scripts.
     Uses SQLite to store scripts and their metadata, and sentence-transformers
     to enable semantic search over script goals/descriptions.
+    Integrates MotifDictionaryCoder for entropy-budgeted compression.
     """
     
-    def __init__(self, db_path: str = ".moe_registry.db", model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(
+        self,
+        db_path: str = ".moe_registry.db",
+        model_name: str = "all-MiniLM-L6-v2",
+        enable_compression: bool = True,
+        coder: Optional[MotifDictionaryCoder] = None,
+    ):
         self.db_path = Path(db_path)
+        self.enable_compression = bool(enable_compression)
+        self.coder = coder or get_default_coder()
         self._init_db()
+        self._load_stored_motifs()
         self.model = get_embedding_model(model_name)
         
     def _init_db(self):
@@ -26,13 +37,20 @@ class OrchestrationRegistry:
                 CREATE TABLE IF NOT EXISTS scripts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_description TEXT NOT NULL,
-                    script_content TEXT NOT NULL,
+                    script_content BLOB NOT NULL,
                     embedding TEXT,  -- JSON serialized list of floats
                     metadata TEXT DEFAULT '{}',
                     score REAL DEFAULT 0.0,
                     execution_count INTEGER DEFAULT 0,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS motif_dictionary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    motif_text TEXT UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             cursor.execute('''
@@ -92,6 +110,30 @@ class OrchestrationRegistry:
             conn.commit()
         finally:
             conn.close()
+
+    def _load_stored_motifs(self) -> None:
+        """Load any persisted dynamic motifs from SQLite into the dictionary coder."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT motif_text FROM motif_dictionary ORDER BY id ASC")
+            for (motif_text,) in cursor.fetchall():
+                if motif_text:
+                    self.coder._register_motif(motif_text)
+        except sqlite3.OperationalError:
+            pass
+        finally:
+            conn.close()
+
+    def _persist_motifs(self, cursor: sqlite3.Cursor, motifs: List[str]) -> None:
+        """Persist newly discovered motifs into the motif_dictionary table."""
+        for motif in motifs:
+            if not motif:
+                continue
+            cursor.execute(
+                "INSERT OR IGNORE INTO motif_dictionary (motif_text) VALUES (?)",
+                (motif,),
+            )
 
     @staticmethod
     def _ensure_column(cursor: sqlite3.Cursor, table_name: str, column_name: str, column_sql: str) -> None:
@@ -372,18 +414,33 @@ class OrchestrationRegistry:
         embedding_json = json.dumps(embedding)
 
         metadata = dict(metadata or {})
+        stored_content: bytes | str = (
+            self.coder.compress(script_content)
+            if self.enable_compression
+            else script_content
+        )
 
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
+            if self.enable_compression:
+                new_motifs = self.coder.learn_motifs([script_content])
+                if new_motifs:
+                    self._persist_motifs(cursor, new_motifs)
+
             cursor.execute('''
-                SELECT id, metadata, score, execution_count
+                SELECT id, script_content, metadata, score, execution_count
                 FROM scripts
-                WHERE task_description = ? AND script_content = ?
+                WHERE task_description = ?
                 ORDER BY id DESC
-                LIMIT 1
-            ''', (task_description, script_content))
-            existing = cursor.fetchone()
+            ''', (task_description,))
+            candidates = cursor.fetchall()
+            existing = None
+            for cand in candidates:
+                c_id, c_content, c_meta, c_score, c_count = cand
+                if self.coder.decompress(c_content) == script_content:
+                    existing = (c_id, c_meta, c_score, c_count)
+                    break
 
             if existing:
                 script_id, existing_metadata_json, existing_score, existing_execution_count = existing
@@ -414,7 +471,7 @@ class OrchestrationRegistry:
                 cursor.execute('''
                     INSERT INTO scripts (task_description, script_content, embedding, metadata, score, execution_count)
                     VALUES (?, ?, ?, ?, ?, ?)
-                ''', (task_description, script_content, embedding_json, json.dumps(prepared_metadata), score, 1))
+                ''', (task_description, stored_content, embedding_json, json.dumps(prepared_metadata), score, 1))
                 script_id = cursor.lastrowid
                 self._store_atom_payloads(cursor, script_id, atom_payloads or [])
                 self._store_plan_motifs(cursor, script_id, prepared_metadata)
@@ -625,10 +682,11 @@ class OrchestrationRegistry:
                 metadata = json.loads(metadata_str or "{}")
                 learning_rank = self._learning_rank(metadata, float(score or 0.0), int(execution_count or 0))
                 retrieval_score = (0.80 * sim) + (0.20 * learning_rank)
+                decompressed_content = self.coder.decompress(content)
                 results.append({
                     "id": row_id,
                     "task_description": desc,
-                    "script_content": content,
+                    "script_content": decompressed_content,
                     "metadata": metadata,
                     "score": score,
                     "execution_count": int(execution_count or 0),
@@ -812,7 +870,7 @@ class OrchestrationRegistry:
                 "evidence_tags": json.loads(evidence_tags or "[]"),
                 "payload": json.loads(payload or "{}"),
                 "task_description": task_description,
-                "script_content": script_content,
+                "script_content": self.coder.decompress(script_content),
                 "metadata": json.loads(metadata or "{}"),
                 "score": score,
             })
@@ -950,3 +1008,12 @@ class OrchestrationRegistry:
             conn.commit()
         finally:
             conn.close()
+
+    def get_compression_stats(self) -> Dict[str, Any]:
+        """Return aggregate statistics about registry dictionary compression."""
+        stats = self.coder.get_stats().to_dict()
+        return {
+            **stats,
+            "compression_enabled": self.enable_compression,
+            "dictionary_size": self.coder.dictionary_size,
+        }

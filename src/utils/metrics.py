@@ -29,10 +29,35 @@ class TokenRecord:
 # Approximate costs per 1 M tokens (USD).  Override at runtime via
 # ``TokenTracker.set_pricing``.
 _DEFAULT_PRICING: Dict[str, Dict[str, float]] = {
+    # Groq LPU Models
+    "gpt-oss-120b": {"input": 0.45, "output": 0.65},
+    "gpt-oss-20b": {"input": 0.10, "output": 0.15},
+    "qwen-3.6-27b": {"input": 0.25, "output": 0.35},
     "llama-3.3-70b-versatile": {"input": 0.59, "output": 0.79},
     "llama-3.1-8b-instant": {"input": 0.05, "output": 0.08},
+    "deepseek-r1-distill-llama-70b": {"input": 0.75, "output": 0.99},
+    "llama-3.2-11b-vision-preview": {"input": 0.18, "output": 0.18},
+    "llama-3.2-90b-vision-preview": {"input": 0.90, "output": 0.90},
     "mixtral-8x7b-32768": {"input": 0.24, "output": 0.24},
     "gemma2-9b-it": {"input": 0.20, "output": 0.20},
+    # OpenAI GPT-5.6 Series
+    "gpt-5.6-sol": {"input": 3.00, "output": 15.00},
+    "gpt-5.6-terra": {"input": 1.50, "output": 7.50},
+    "gpt-5.6-luna": {"input": 0.25, "output": 1.00},
+    "gpt-5.4-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "o1": {"input": 15.00, "output": 60.00},
+    "o3-mini": {"input": 1.10, "output": 4.40},
+    # Anthropic Claude 5 Series
+    "claude-opus-5": {"input": 15.00, "output": 75.00},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00},
+    "claude-fable-5": {"input": 3.00, "output": 15.00},
+    "claude-haiku-4-5": {"input": 0.50, "output": 2.50},
+    "claude-3-7-sonnet-latest": {"input": 3.00, "output": 15.00},
+    "claude-3-5-sonnet-20241022": {"input": 3.00, "output": 15.00},
+    "claude-3-5-haiku-20241022": {"input": 0.80, "output": 4.00},
+    "claude-3-opus-latest": {"input": 15.00, "output": 75.00},
 }
 
 

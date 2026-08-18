@@ -38,6 +38,7 @@ class MoEGraphBuilder:
             atom_few_shot_count=self.config.orchestrator_atom_few_shot_count,
             enable_atom_few_shot_retrieval=self.config.enable_atom_few_shot_retrieval,
             enable_metadata_selection_bias=self.config.enable_metadata_selection_bias,
+            enable_compression=self.config.enable_registry_compression,
             registry_db_path=self.config.registry_db_path,
         )
 
@@ -50,6 +51,7 @@ class MoEGraphBuilder:
                 max_statements=self.config.sandbox_max_statements,
                 max_query_calls=self.config.sandbox_max_query_calls,
             ),
+            enable_compression=self.config.enable_registry_compression,
             registry_db_path=self.config.registry_db_path,
         )
 

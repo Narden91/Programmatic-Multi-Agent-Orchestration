@@ -127,6 +127,15 @@ class BenchmarkReport:
             return 0.0
         return statistics.mean(r.neighborhood_reuse_rate for r in self.results)
 
+    @property
+    def recovery_rate_pct(self) -> float:
+        """Percentage of cases requiring retries that ultimately succeeded."""
+        retried = [r for r in self.results if r.retry_count > 0]
+        if not retried:
+            return 100.0 if self.passed > 0 else 0.0
+        recovered = sum(1 for r in retried if r.success)
+        return (recovered / len(retried)) * 100.0
+
     def summary(self) -> Dict[str, Any]:
         return {
             "total_cases": len(self.results),
@@ -134,6 +143,7 @@ class BenchmarkReport:
             "failed": self.failed,
             "expert_accuracy_pct": round(self.expert_accuracy, 1),
             "success_rate_pct": round(self.success_rate_pct, 1),
+            "recovery_rate_pct": round(self.recovery_rate_pct, 1),
             "elapsed_mean_seconds": round(self.mean_elapsed_seconds, 3),
             "retries_mean": round(self.mean_retries, 3),
             "tokens_mean": round(self.mean_tokens, 1),
@@ -273,17 +283,20 @@ class BenchmarkComparisonReport:
             return {"variants": [], "deltas": []}
 
         baseline = self.variants[0]
+        baseline_extra = getattr(baseline.report, "extra_metrics", {}) or {}
         baseline_metrics = {
             "success_rate_pct": baseline.report.success_rate_pct,
             "elapsed_mean_seconds": baseline.report.mean_elapsed_seconds,
             "retries_mean": baseline.report.mean_retries,
             "tokens_mean": baseline.report.mean_tokens,
             "neighborhood_reuse_rate_mean": baseline.report.mean_neighborhood_reuse_rate,
+            **baseline_extra,
         }
 
         variants = []
         deltas = []
         for variant in self.variants:
+            extra = getattr(variant.report, "extra_metrics", {}) or {}
             metrics = {
                 "success_rate_pct": round(variant.report.success_rate_pct, 1),
                 "elapsed_mean_seconds": round(variant.report.mean_elapsed_seconds, 3),
@@ -291,18 +304,23 @@ class BenchmarkComparisonReport:
                 "tokens_mean": round(variant.report.mean_tokens, 1),
                 "neighborhood_reuse_rate_mean": round(variant.report.mean_neighborhood_reuse_rate, 3),
                 "failed": variant.report.failed,
+                **extra,
             }
             variants.append({"name": variant.name, "metrics": metrics})
             if variant is baseline:
                 continue
-            deltas.append({
+            delta_dict = {
                 "name": variant.name,
                 "delta_success_rate_pct": round(variant.report.success_rate_pct - baseline_metrics["success_rate_pct"], 1),
                 "delta_elapsed_mean_seconds": round(variant.report.mean_elapsed_seconds - baseline_metrics["elapsed_mean_seconds"], 3),
                 "delta_retries_mean": round(variant.report.mean_retries - baseline_metrics["retries_mean"], 3),
                 "delta_tokens_mean": round(variant.report.mean_tokens - baseline_metrics["tokens_mean"], 1),
                 "delta_neighborhood_reuse_rate_mean": round(variant.report.mean_neighborhood_reuse_rate - baseline_metrics["neighborhood_reuse_rate_mean"], 3),
-            })
+            }
+            for k, v in extra.items():
+                if k in baseline_metrics:
+                    delta_dict[f"delta_{k}"] = round(float(v) - float(baseline_metrics[k]), 3)
+            deltas.append(delta_dict)
 
         return {"variants": variants, "deltas": deltas}
 

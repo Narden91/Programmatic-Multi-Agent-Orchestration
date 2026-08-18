@@ -21,12 +21,13 @@ from src.utils.metrics import TokenTracker, TokenRecord, reset_token_tracker, ge
 class TestExpertRegistry:
 
     def test_default_experts_registered(self):
-        """The four built-in experts should be pre-registered."""
+        """The built-in experts should be pre-registered."""
         assert "technical" in registry
         assert "creative" in registry
         assert "analytical" in registry
         assert "general" in registry
-        assert len(registry) == 4
+        assert "critical-thinker" in registry
+        assert len(registry) == 5
 
     def test_register_and_unregister(self):
         r = ExpertRegistry()
@@ -149,8 +150,8 @@ class TestCodeAnalyzer:
     def test_sequential_calls(self):
         code = (
             'async def orchestrate():\n'
-            '    a = await query_technical_expert("hi")\n'
-            '    b = await query_creative_expert("hi")\n'
+            '    a = await query_agent("technical", "hi")\n'
+            '    b = await query_agent("creative", "hi")\n'
             '    return a + b\n'
         )
         plan = analyze_code(code)
@@ -163,8 +164,8 @@ class TestCodeAnalyzer:
         code = (
             'async def orchestrate():\n'
             '    a, b = await asyncio.gather(\n'
-            '        query_technical_expert("hi"),\n'
-            '        query_analytical_expert("hi"),\n'
+            '        query_agent("technical", "hi"),\n'
+            '        query_agent("analytical", "hi"),\n'
             '    )\n'
             '    return a + b\n'
         )
@@ -178,10 +179,10 @@ class TestCodeAnalyzer:
         code = (
             'async def orchestrate():\n'
             '    a, b = await asyncio.gather(\n'
-            '        query_technical_expert("hi"),\n'
-            '        query_creative_expert("hi"),\n'
+            '        query_agent("technical", "hi"),\n'
+            '        query_agent("creative", "hi"),\n'
             '    )\n'
-            '    c = await query_general_expert(a + b)\n'
+            '    c = await query_agent("general", a + b)\n'
             '    return c\n'
         )
         plan = analyze_code(code)
@@ -204,7 +205,7 @@ class TestCodeAnalyzer:
     def test_to_dict_serialisable(self):
         code = (
             'async def orchestrate():\n'
-            '    r = await query_general_expert("hi")\n'
+            '    r = await query_agent("general", "hi")\n'
             '    return r\n'
         )
         plan = analyze_code(code)

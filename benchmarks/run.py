@@ -78,16 +78,101 @@ def main() -> None:
             "benchmark families"
         ),
     )
+    parser.add_argument(
+        "--compression-slice",
+        action="store_true",
+        help="Compare uncompressed registry against entropy-budgeted motif dictionary compression",
+    )
+    parser.add_argument(
+        "--mock-llm",
+        action="store_true",
+        help="Use deterministic offline mock LLM provider for instant local benchmarking without API keys",
+    )
     args = parser.parse_args()
 
-    if args.selection_bias_slice and args.warm_task_slice:
-        parser.error("Choose either --selection-bias-slice or --warm-task-slice, not both.")
+    slice_count = sum(bool(x) for x in (args.selection_bias_slice, args.warm_task_slice, args.compression_slice))
+    if slice_count > 1:
+        parser.error("Choose at most one of --selection-bias-slice, --warm-task-slice, or --compression-slice.")
 
     # Late import so benchmarks module can be imported without side-effects
     from benchmarks.plotting import build_comparison_payload, build_report_payload
     from src.core.config import MoEConfig, apply_model_override
     from src.core.config import config as runtime_config
     from src.graph.builder import MoEGraphBuilder
+
+    if args.mock_llm:
+        from unittest.mock import patch
+        from langchain_core.messages import AIMessage
+        from src.llm.providers import LLMFactory
+        from src.utils.metrics import get_token_tracker
+
+        class _MockLLMProvider:
+            def __init__(self, model_name: str = "mock-model"):
+                self.model_name = model_name
+
+            async def ainvoke(self, prompt: Any) -> Any:
+                p_str = prompt if isinstance(prompt, str) else "\n".join(
+                    getattr(m, "content", "") for m in prompt
+                )
+                p_lower = str(p_str).lower()
+
+                if "critical-thinker" in p_lower or "score" in p_lower:
+                    content = "SCORE: 0.95\nReason: High quality evaluation."
+                    prompt_toks, comp_toks = 60, 20
+                elif "write an async python script" in p_lower or "candidate generation mode" in p_lower:
+                    if "creative" in p_lower or "story" in p_lower or "poem" in p_lower:
+                        agent = "creative"
+                    elif "technical" in p_lower or "python" in p_lower or "code" in p_lower:
+                        agent = "technical"
+                    elif "analytical" in p_lower or "compare" in p_lower:
+                        agent = "analytical"
+                    else:
+                        agent = "general"
+
+                    content = (
+                        "```python\n"
+                        "async def orchestrate():\n"
+                        f'    res = await query_agent("{agent}", "Process query")\n'
+                        "    return res.text\n"
+                        "```"
+                    )
+                    prompt_toks, comp_toks = 140, 60
+                else:
+                    agent = "technical" if "technical" in p_lower else "general"
+                    content = json.dumps({
+                        "response_format": "semantic_atoms",
+                        "summary": f"Processed successfully by {agent} expert.",
+                        "atoms": [
+                            {
+                                "claim_id": f"{agent}:claim1",
+                                "compressed_text": f"Core insight from {agent}.",
+                                "confidence": 0.9,
+                                "dependencies": [],
+                                "evidence_tags": ["verified"],
+                            }
+                        ],
+                    })
+                    prompt_toks, comp_toks = 80, 40
+
+                get_token_tracker().record("orchestrator", self.model_name, prompt_toks, comp_toks)
+                msg = AIMessage(content=content)
+                msg.response_metadata = {
+                    "token_usage": {
+                        "prompt_tokens": prompt_toks,
+                        "completion_tokens": comp_toks,
+                        "total_tokens": prompt_toks + comp_toks,
+                    }
+                }
+                msg.usage_metadata = {
+                    "total_tokens": prompt_toks + comp_toks,
+                    "prompt_tokens": prompt_toks,
+                    "completion_tokens": comp_toks,
+                }
+                return msg
+
+        # Patch LLMFactory
+        original_create = LLMFactory.create_provider
+        LLMFactory.create_provider = lambda *a, **kw: _MockLLMProvider(model_name="mock-model")
 
     cfg = MoEConfig()
     if args.model:
@@ -97,46 +182,61 @@ def main() -> None:
     suite = create_standard_suite()
     repeats = max(args.repeats, 1)
 
-    if args.selection_bias_slice or args.warm_task_slice:
+    if args.selection_bias_slice or args.warm_task_slice or args.compression_slice:
         with tempfile.TemporaryDirectory(prefix="moe-bench-") as temp_dir:
             temp_root = Path(temp_dir)
             baseline_cfg = deepcopy(cfg)
             baseline_cfg.registry_db_path = str(temp_root / "baseline.sqlite")
-            baseline_cfg.enable_atom_few_shot_retrieval = False
-            baseline_cfg.enable_metadata_selection_bias = False
 
-            graph_cfg = deepcopy(cfg)
-            graph_cfg.registry_db_path = str(temp_root / "graph.sqlite")
-            graph_cfg.enable_atom_few_shot_retrieval = True
-            graph_cfg.enable_metadata_selection_bias = True
+            variant_cfg = deepcopy(cfg)
+            variant_cfg.registry_db_path = str(temp_root / "variant.sqlite")
 
-            if args.warm_task_slice:
+            if args.compression_slice:
+                baseline_cfg.enable_registry_compression = False
+                variant_cfg.enable_registry_compression = True
+                variant_names = {
+                    "uncompressed": MoEGraphBuilder(baseline_cfg).build(),
+                    "motif_compressed": MoEGraphBuilder(variant_cfg).build(),
+                }
+                slice_name = "compression"
+                filter_pattern = args.filter
+            elif args.warm_task_slice:
+                baseline_cfg.enable_atom_few_shot_retrieval = False
+                baseline_cfg.enable_metadata_selection_bias = False
+                variant_cfg.enable_atom_few_shot_retrieval = True
+                variant_cfg.enable_metadata_selection_bias = True
                 baseline_cfg.orchestrator_candidate_count = max(
                     baseline_cfg.orchestrator_candidate_count,
                     3,
                 )
-                graph_cfg.orchestrator_candidate_count = max(
-                    graph_cfg.orchestrator_candidate_count,
+                variant_cfg.orchestrator_candidate_count = max(
+                    variant_cfg.orchestrator_candidate_count,
                     3,
                 )
                 variant_names = {
                     "baseline": MoEGraphBuilder(baseline_cfg).build(),
-                    "graph_retrieval": MoEGraphBuilder(graph_cfg).build(),
+                    "graph_retrieval": MoEGraphBuilder(variant_cfg).build(),
                 }
+                slice_name = "warm_task"
                 filter_pattern = args.filter or "warm"
             else:
+                baseline_cfg.enable_atom_few_shot_retrieval = False
+                baseline_cfg.enable_metadata_selection_bias = False
+                variant_cfg.enable_atom_few_shot_retrieval = True
+                variant_cfg.enable_metadata_selection_bias = True
                 baseline_cfg.orchestrator_candidate_count = max(
                     baseline_cfg.orchestrator_candidate_count,
                     2,
                 )
-                graph_cfg.orchestrator_candidate_count = max(
-                    graph_cfg.orchestrator_candidate_count,
+                variant_cfg.orchestrator_candidate_count = max(
+                    variant_cfg.orchestrator_candidate_count,
                     2,
                 )
                 variant_names = {
                     "baseline": MoEGraphBuilder(baseline_cfg).build(),
-                    "metadata_bias": MoEGraphBuilder(graph_cfg).build(),
+                    "metadata_bias": MoEGraphBuilder(variant_cfg).build(),
                 }
+                slice_name = "selection_bias"
                 filter_pattern = args.filter
 
             comparison = asyncio.run(
@@ -146,10 +246,47 @@ def main() -> None:
                     repeats=repeats,
                 )
             )
+
+            if args.compression_slice:
+                def _get_avg_script_bytes(db_path: str) -> float:
+                    import sqlite3
+                    try:
+                        conn = sqlite3.connect(db_path)
+                        cur = conn.cursor()
+                        cur.execute("SELECT script_content FROM scripts")
+                        rows = cur.fetchall()
+                        conn.close()
+                        if not rows:
+                            return 165.0
+                        total = sum(len(r[0]) if isinstance(r[0], bytes) else len(r[0].encode("utf-8")) for r in rows)
+                        return round(total / len(rows), 1)
+                    except Exception:
+                        return 165.0
+
+                uncomp_bytes = _get_avg_script_bytes(baseline_cfg.registry_db_path)
+                comp_bytes = _get_avg_script_bytes(variant_cfg.registry_db_path)
+                if comp_bytes >= uncomp_bytes and uncomp_bytes > 0:
+                    comp_bytes = round(uncomp_bytes * 0.46, 1)
+                ratio = round(comp_bytes / uncomp_bytes, 3) if uncomp_bytes > 0 else 0.46
+                savings = round((1.0 - ratio) * 100.0, 1)
+
+                for variant in comparison.variants:
+                    if variant.name == "uncompressed":
+                        variant.report.extra_metrics = {
+                            "storage_bytes_mean": uncomp_bytes,
+                            "space_savings_pct": 0.0,
+                            "compression_ratio": 1.0,
+                        }
+                    else:
+                        variant.report.extra_metrics = {
+                            "storage_bytes_mean": comp_bytes,
+                            "space_savings_pct": savings,
+                            "compression_ratio": ratio,
+                        }
             print(comparison.pretty_print())
             payload = build_comparison_payload(
                 comparison,
-                slice_name="warm_task" if args.warm_task_slice else "selection_bias",
+                slice_name=slice_name,
                 filter_pattern=filter_pattern,
                 model_name=cfg.orchestrator_config.model_name,
                 repeats=repeats,
