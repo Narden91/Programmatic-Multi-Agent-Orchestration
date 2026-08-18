@@ -154,12 +154,22 @@ class OrchestratorPrompts:
 User Query: "{query}"
 {context_section}
 You have access to the following async functions (tools) in your sandbox environment:
-- query_agent(agent_type: str, prompt: str) -> AgentResult : queries an expert. Default to using `.text` on the result (e.g. `res = await query_agent('technical', '...'); print(res.text)`). When helpful, you may also inspect `res.atoms`, a list of semantic atoms with fields like `atom_id`, `text`, `confidence`, `dependencies`, and `evidence_tags`. Available agent_types:
+- query_agent(agent_type: str, prompt: str, weight: float = None, skill: str = None) -> AgentResult : queries an expert micro-agent.
+  * `weight` (optional float 0.0 to 1.0): task importance weight. Low weights (<0.4) automatically trigger Caveman compression behind the scenes.
+  * `skill` (optional str): 'caveman' (aggressive token-saving telegram bullets for background subtasks), 'ponytail' (mathematical precision and architectural rigor for primary analysis), or 'karpathy' (minimal, transparent fundamentals).
+  * Use `.text` on the result (e.g. `res = await query_agent('technical', '...', weight=0.3, skill='caveman')`). When helpful, you may also inspect `res.atoms`, a list of semantic atoms with fields like `atom_id`, `text`, `confidence`, `dependencies`, and `evidence_tags`.
+  Available agent_types:
 {experts_list}
 - memory_store(key: str, text: str, metadata: dict = None) -> str : stores text in ephemeral vector database
 - memory_search(query: str, top_k: int = 5) -> list[dict] : retrieves top_k semantically relevant chunks
 - compress_context(query: str, top_k: int = 5) -> str : returns a summarized string of relevant memory chunks
 - asyncio.gather(*tasks) # for running agents in parallel
+
+Karpathy & Agent Skills Guidelines:
+1. First-Principles Simplicity (Karpathy): Write clean, declarative, single-pass async Python DAGs. Avoid unnecessary abstractions, wrapper classes, or dead variables.
+2. Token Economy via Caveman Mode: If an expert subtask is secondary, auxiliary, or a quick fact/sanity check, pass `skill="caveman"` or `weight=0.2` to aggressively compress intermediate tokens behind the scenes.
+3. High-Leverage Rigor via Ponytail Mode: For core architectural, mathematical, or deep analytical nodes, pass `skill="ponytail"` or `weight=0.9` for maximum precision.
+4. Natural Language Synthesis for End Users: While intermediate micro-agents may communicate in compact, ultra-dense caveman bullet points behind the scenes, your final synthesis MUST ALWAYS return a polished, articulate, comprehensive natural language response for the user.
 
 Instructions:
 1. Break down the query into steps.
@@ -180,12 +190,15 @@ Instructions:
 Example:
 ```python
 async def orchestrate():
-    technical_task = query_agent("technical", "Explain the architecture part of: " + user_query_fragment)
-    analytical_task = query_agent("analytical", "Analyze the data part of: " + user_query_fragment)
+    # Primary analysis with ponytail precision
+    tech_task = query_agent("technical", "Analyze core algorithm: " + user_query_fragment, skill="ponytail")
+    # Auxiliary background check with caveman token compression
+    fact_task = query_agent("analytical", "Verify constraints: " + user_query_fragment, skill="caveman")
     
-    tech_result, analytical_result = await asyncio.gather(technical_task, analytical_task)
+    tech_result, fact_result = await asyncio.gather(tech_task, fact_task)
     
-    final_synthesis = await query_agent("general", f"Combine these: {{tech_result.text}} and {{analytical_result.text}} into a cohesive summary.")
+    # Final user-facing synthesis in fluent natural language
+    final_synthesis = await query_agent("general", f"Synthesize into an articulate response: {{tech_result.text}} with verification: {{fact_result.text}}")
     return final_synthesis.text
 ```
 

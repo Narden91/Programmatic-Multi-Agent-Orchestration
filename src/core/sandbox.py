@@ -212,29 +212,62 @@ class CodeSandbox:
         
     def _make_tracked_query_agent(self):
         """Creates a sandboxed version of query_agent that is traced and logs results."""
-        async def _tracked_call(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
+        async def _tracked_call(
+            agent_type: str,
+            prompt: str,
+            context_ids: Optional[List[str]] = None,
+            weight: Optional[float] = None,
+            skill: Optional[str] = None,
+            **kwargs: Any,
+        ) -> Any:
             span = self.tracer.start_span(
                 name=f"query_agent_{agent_type}",
                 span_type="agent",
-                inputs={"agent_type": agent_type, "prompt": prompt, "context_ids": context_ids}
+                inputs={
+                    "agent_type": agent_type,
+                    "prompt": prompt,
+                    "context_ids": context_ids,
+                    "weight": weight,
+                    "skill": skill,
+                }
             )
             try:
                 # We return the AgentResult object to the sandbox, so they can use .text
                 # If they pass it to str(), it might not work well, so we might need
                 # to instruct the orchestrator to use result.text.
-                result = await real_query_agent(agent_type, prompt, context_ids)
-                self._call_log[agent_type] = result.text
+                call_kwargs = dict(kwargs)
+                if weight is not None:
+                    call_kwargs["weight"] = weight
+                if skill is not None:
+                    call_kwargs["skill"] = skill
+                try:
+                    result = await real_query_agent(
+                        agent_type,
+                        prompt,
+                        context_ids,
+                        **call_kwargs,
+                    )
+                except TypeError:
+                    result = await real_query_agent(
+                        agent_type,
+                        prompt,
+                        context_ids,
+                    )
+
+                self._call_log[agent_type] = result.text if hasattr(result, "text") else str(result)
                 atoms = [atom.to_dict() for atom in getattr(result, "atoms", [])]
                 
                 self.tracer.end_span(
                     span,
                     outputs={
-                        "text": result.text,
+                        "text": getattr(result, "text", str(result)),
                         "atom_count": len(atoms),
-                        "response_format": result.metadata.get("response_format", "plain_text"),
+                        "response_format": getattr(result, "metadata", {}).get("response_format", "plain_text"),
+                        "applied_skill": getattr(result, "metadata", {}).get("applied_skill"),
+                        "weight": getattr(result, "metadata", {}).get("weight"),
                         "atoms": atoms,
                     },
-                    metrics={"tokens": result.token_count},
+                    metrics={"tokens": getattr(result, "token_count", 0)},
                 )
                 return result
             except Exception as e:
@@ -242,18 +275,37 @@ class CodeSandbox:
                 raise
 
         class _TrackedQueryHandle:
-            def __init__(self, outer: "CodeSandbox", agent_type: str, prompt: str, context_ids: Optional[List[str]]) -> None:
+            def __init__(
+                self,
+                outer: "CodeSandbox",
+                agent_type: str,
+                prompt: str,
+                context_ids: Optional[List[str]] = None,
+                weight: Optional[float] = None,
+                skill: Optional[str] = None,
+                **kwargs: Any,
+            ) -> None:
                 self._outer = outer
                 self._agent_type = agent_type
                 self._prompt = prompt
                 self._context_ids = context_ids
-                self._task: Optional[asyncio.Task[Any]] = None
+                self._weight = weight
+                self._skill = skill
+                self._kwargs = kwargs
+                self._task: asyncio.Task[Any] = asyncio.create_task(
+                    _tracked_call(
+                        self._agent_type,
+                        self._prompt,
+                        self._context_ids,
+                        weight=self._weight,
+                        skill=self._skill,
+                        **self._kwargs,
+                    )
+                )
+                self._outer._pending_query_tasks.add(self._task)
+                self._task.add_done_callback(self._outer._pending_query_tasks.discard)
 
             def _ensure_task(self) -> asyncio.Task[Any]:
-                if self._task is None:
-                    self._task = asyncio.create_task(_tracked_call(self._agent_type, self._prompt, self._context_ids))
-                    self._outer._pending_query_tasks.add(self._task)
-                    self._task.add_done_callback(self._outer._pending_query_tasks.discard)
                 return self._task
 
             def __await__(self):
@@ -290,8 +342,23 @@ class CodeSandbox:
                     )
                 raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
-        def _tracked(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> Any:
-            return _TrackedQueryHandle(self, agent_type, prompt, context_ids)
+        def _tracked(
+            agent_type: str,
+            prompt: str,
+            context_ids: Optional[List[str]] = None,
+            weight: Optional[float] = None,
+            skill: Optional[str] = None,
+            **kwargs: Any,
+        ) -> Any:
+            return _TrackedQueryHandle(
+                self,
+                agent_type,
+                prompt,
+                context_ids,
+                weight=weight,
+                skill=skill,
+                **kwargs,
+            )
 
         return _tracked
 

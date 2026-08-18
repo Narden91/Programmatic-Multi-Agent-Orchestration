@@ -183,7 +183,35 @@ def _looks_like_atom_payload(payload: Dict[str, Any]) -> bool:
         for key in ("claim_id", "compressed_text", "claim", "text")
     )
 
-async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[str]] = None) -> AgentResult:
+_SKILL_DIRECTIVES: Dict[str, str] = {
+    "caveman": (
+        "\n\n[AGENT DIRECTIVE - CAVEMAN TOKEN COMPRESSION]:\n"
+        "You are an auxiliary background sub-agent. Minimize token usage aggressively. "
+        "Eliminate pleasantries, conversational filler, articles, and speculative hedging. "
+        "Output dense, raw factual bullet points with maximum semantic entropy. Maximum facts, minimum tokens."
+    ),
+    "ponytail": (
+        "\n\n[AGENT DIRECTIVE - PONYTAIL PRECISION & RIGOR]:\n"
+        "You are a lead analytical expert. Apply first-principles decomposition, mathematical precision, "
+        "and architectural rigor. Explicitly highlight core invariants, assumptions, and edge cases."
+    ),
+    "karpathy": (
+        "\n\n[AGENT DIRECTIVE - KARPATHY GUIDELINES]:\n"
+        "Keep reasoning simple, transparent, and direct. Focus on clean fundamentals without unnecessary abstractions. "
+        "State verifiable facts, concrete steps, and direct solutions with minimal complexity."
+    ),
+}
+
+
+async def query_agent(
+    agent_type: str,
+    prompt: str,
+    context_ids: Optional[List[str]] = None,
+    *,
+    weight: Optional[float] = None,
+    skill: Optional[str] = None,
+    **kwargs: Any,
+) -> AgentResult:
     """
     Spawns a transient micro-agent of the requested type, processes the prompt, and returns the result.
     
@@ -191,8 +219,18 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         agent_type: The type of expert to spawn (e.g., 'technical', 'analytical', 'creative', 'general', 'critical-thinker')
         prompt: The task instruction or query.
         context_ids: Optional list of memory context IDs to retrieve and inject.
+        weight: Importance weight (0.0 to 1.0) of this subtask. Lower weights (<0.4) automatically
+                activate Caveman mode to minimize token expenditure behind the scenes.
+        skill: Explicit agent skill directive ('caveman', 'ponytail', 'karpathy').
     """
-    cache_key = f"{agent_type}:{prompt}:{','.join(context_ids) if context_ids else ''}"
+    effective_skill = (skill or "").lower().strip() or None
+    if effective_skill is None and weight is not None:
+        if weight < 0.4:
+            effective_skill = "caveman"
+        elif weight >= 0.8:
+            effective_skill = "ponytail"
+
+    cache_key = f"{agent_type}:{prompt}:{','.join(context_ids) if context_ids else ''}:{effective_skill or ''}:{weight if weight is not None else ''}"
     if cache_key in _prompt_cache:
         # Clone to avoid mutable sharing
         cached = _prompt_cache[cache_key]
@@ -207,16 +245,8 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         
     expert_config = config.expert_configs[agent_type]
     
-    # Check if context_ids are provided (memory integration to be added)
-    # If we have context, we would look it up here and prepend it to the prompt.
-    # For now we'll just mock the context retrieval part since Memory class isn't fully injected yet.
-    # In sandbox.py, memory_search would have been used by the orchestrator script to get facts.
-    
     full_prompt = prompt
     if context_ids:
-        # This assumes the sandbox has already done the `memory_search`. If context_ids is passed,
-        # it might just be the actual texts, or the orchestrator should pass the searched texts directly.
-        # But per idea_v2, the orchestrator might pass raw context texts or we fetch them here.
         pass
 
     # 2. Instantiate LLM
@@ -230,9 +260,13 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         config=llm_config,
     )
     
-    # 3. Prepare messages
+    # 3. Prepare messages with dynamic skill directive
+    system_content = expert_config.system_prompt
+    if effective_skill and effective_skill in _SKILL_DIRECTIVES:
+        system_content = f"{system_content}{_SKILL_DIRECTIVES[effective_skill]}"
+
     messages = [
-        SystemMessage(content=expert_config.system_prompt),
+        SystemMessage(content=system_content),
         HumanMessage(content=full_prompt)
     ]
     
@@ -283,10 +317,16 @@ async def query_agent(agent_type: str, prompt: str, context_ids: Optional[List[s
         
     duration_ms = int((time.time() - start_time) * 1000)
     
+    meta = {"agent_type": agent_type, "model": active_model_name}
+    if effective_skill:
+        meta["applied_skill"] = effective_skill
+    if weight is not None:
+        meta["weight"] = weight
+
     agent_result = AgentResult.from_response_text(
         response_text,
         agent_type=agent_type,
-        metadata={"agent_type": agent_type, "model": active_model_name},
+        metadata=meta,
         token_count=token_count,
         duration_ms=duration_ms,
     )

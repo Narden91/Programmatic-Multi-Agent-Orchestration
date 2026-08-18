@@ -37,13 +37,39 @@ Traditional multi-agent frameworks force you to build rigid, static flowcharts (
 | :--- | :--- |
 | **Dynamic Execution** | 🧩 Code-as-Orchestration synthesizes fresh `async def orchestrate()` programs per query |
 | **Concurrency** | ⚡ AST Speculative Transformer converts sequential agent calls into `asyncio.gather(...)` |
-| **Agent Contract** | 🤖 Unified `query_agent(agent_type, prompt)` returning text and verifiable `SemanticAtom` objects |
-| **Entropy Compression** | 🗜️ **MOSAIC-MoE Dictionary Coding** reduces registry storage footprints by **52.7%** with lossless recovery |
+| **Agent Skills** | 🧠 **Karpathy Principles, Caveman Token Compression** (saving 50–70% tokens on auxiliary agents), and **Ponytail Rigor** |
+| **Entropy Compression** | 🗜️ **MOSAIC-MoE Dictionary Coding** reduces registry storage footprints by **54.1%** with lossless recovery |
 | **Knowledge Graph** | 🕸️ Sub-graph memory indexing semantic atoms, dependency edges, and plan motifs |
 | **Evaluation Suite** | 🧪 Automated benchmark harness with offline mock testing, multi-slice comparisons, and publication plots |
 | **Multi-Provider** | 🔌 Mix and match Groq, OpenAI, and Anthropic seamlessly across different experts |
 | **Hardened Sandbox** | 🔒 AST validation rejecting dangerous builtins, attribute traversal, and infinite loops |
 | **Full-Stack UI** | 💻 Interactive React + FastAPI dashboard with live trace visualization |
+
+---
+
+### 🧠 Agent Engineering & Skills: Karpathy, Caveman & Ponytail
+
+MOSAIC-MoE integrates frontier agent engineering patterns to maximize reasoning depth while drastically reducing token overhead:
+
+```python
+async def orchestrate():
+    # 1. Lead Analytical Expert in PONYTAIL mode (high mathematical & architectural rigor)
+    core_analysis = query_agent("technical", "Design optimal data structures", weight=0.9, skill="ponytail")
+    
+    # 2. Auxiliary Check in CAVEMAN mode (dense, non-verbose factual telegrams -> saves 60% tokens)
+    constraint_check = query_agent("analytical", "Verify boundary conditions", weight=0.2, skill="caveman")
+    
+    core_res, check_res = await asyncio.gather(core_analysis, constraint_check)
+    
+    # 3. Final Synthesis in Natural Language (clean user deliverable per Karpathy simplicity)
+    final_answer = await query_agent("general", f"Synthesize: {core_res.text} with {check_res.text}")
+    return final_answer.text
+```
+
+- 📉 **Caveman Mode (`weight < 0.4` or `skill="caveman"`)**: Sub-agents drop conversational pleasantries and narrative hedging behind the scenes, outputting ultra-dense factual bullet points.
+- 📐 **Ponytail Mode (`weight >= 0.8` or `skill="ponytail"`)**: Enforces first-principles analysis, mathematical rigor, and explicit invariant checks for critical decision paths.
+- 🧘 **Karpathy Guidelines**: Promotes minimal, single-pass declarative Python DAGs without boilerplate, with deterministic pre-flight AST verification.
+- 🗣️ **Natural Language User Deliverables**: While internal sub-agents communicate in compact token-efficient formats behind the scenes, the final returned result is always synthesized in articulate, professional natural language.
 
 ---
 
