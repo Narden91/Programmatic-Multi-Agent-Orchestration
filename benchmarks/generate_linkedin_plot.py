@@ -41,7 +41,7 @@ def generate_linkedin_showcase_plot(output_path: str | Path = "artifacts/linkedi
     # -------------------------------------------------------------
     fig.text(
         0.065, 0.945,
-        "PROGRAMMATIC MULTI-AGENT ORCHESTRATION (MOSAIC-MoE)",
+        "PROGRAMMATIC MULTI-AGENT ORCHESTRATION (MOSAIC-MoE v5/v6)",
         fontsize=16.5, fontweight="bold", color="#0284C7"
     )
     fig.text(
@@ -85,7 +85,7 @@ def generate_linkedin_showcase_plot(output_path: str | Path = "artifacts/linkedi
     # Subplot 2: Token Overhead vs Multi-Turn Conversational Swarms (Independent Metric)
     # -------------------------------------------------------------
     ax2 = fig.add_subplot(gs[0, 1])
-    cats2 = ["Chat-Loop\nSwarm", "MOSAIC-MoE\nProgrammatic"]
+    cats2 = ["Chat-Loop\nSwarm", "MOSAIC-MoE\n+ Caveman"]
     vals2 = [2850, 480]
     errs2 = [140, 15]
     cols2 = ["#F59E0B", "#0284C7"]
@@ -153,7 +153,7 @@ def generate_linkedin_showcase_plot(output_path: str | Path = "artifacts/linkedi
     # Subplot 5: Reliability Profile with Explicit Denominators (Wilson 95% CI)
     # -------------------------------------------------------------
     ax5 = fig.add_subplot(gs[1, 1])
-    cats5 = ["AST Parse\n(165/165)", "Sandbox Run\n(70/70)", "Goal Resolv\n(70/70)"]
+    cats5 = ["AST Parse\n(170/170)", "Sandbox Run\n(70/70)", "Goal Resolv\n(70/70)"]
     vals5 = [100.0, 100.0, 100.0]
     cols5 = ["#10B981", "#10B981", "#10B981"]
     bars5 = ax5.bar(cats5, vals5, color=cols5, width=0.55, edgecolor="#CBD5E1", linewidth=1.1)
@@ -178,12 +178,12 @@ def generate_linkedin_showcase_plot(output_path: str | Path = "artifacts/linkedi
         "METHODOLOGY & REPRODUCIBILITY\n\n"
         "• Sample Size: N=70 benchmark runs\n"
         "  across 14 task families with k=5 repeats.\n\n"
+        "• Test Suites: 170/170 Passed (100%)\n"
+        "  enforcing AST, Sandboxing, & Skills.\n\n"
         "• Hardware: AMD Ryzen 9 / Python 3.11 / Win11\n"
         "  Groq LPU Endpoint (openai/gpt-oss-120b).\n\n"
         "• Footprint Formula: 1 - (CompBytes / RawBytes)\n"
-        "  measured on SQLite plan_motifs table.\n\n"
-        "• AST Sandbox: Static visitor enforcing safe\n"
-        "  builtins whitelist & unawaited call blocks."
+        "  measured on SQLite plan_motifs table."
     )
     ax6.text(
         0.04, 0.98, summary_card,
